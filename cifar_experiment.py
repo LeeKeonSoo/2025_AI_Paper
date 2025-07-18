@@ -85,8 +85,7 @@ class ResNetBlock(nn.Module):
 class CIFARExperiment:
     """CIFAR-10 실험 클래스 (CUDA 최적화)"""
     
-    def __init__(self, data_dir='./data', batch_size=128):
-        self.data_dir = data_dir
+    def __init__(self, batch_size=128):
         self.batch_size = batch_size
         
         # CUDA 환경 설정
@@ -129,11 +128,11 @@ class CIFARExperiment:
         
         # 데이터셋 로드
         full_train_dataset = torchvision.datasets.CIFAR10(
-            root=self.data_dir, train=True, download=True, transform=transform_train
+            root='./data', train=True, download=True, transform=transform_train
         )
         
         test_dataset = torchvision.datasets.CIFAR10(
-            root=self.data_dir, train=False, download=True, transform=transform_test
+            root='./data', train=False, download=True, transform=transform_test
         )
         
         # 훈련/검증 데이터 분할
@@ -145,22 +144,28 @@ class CIFARExperiment:
         )
         
         # 데이터 로더 생성 (CUDA 최적화)
-        num_workers = 4 if torch.cuda.is_available() else 0
+        num_workers = 8 if torch.cuda.is_available() else 0
         pin_memory = torch.cuda.is_available()
         
         self.train_loader = DataLoader(
             train_dataset, batch_size=self.batch_size, shuffle=True,
-            num_workers=num_workers, pin_memory=pin_memory
+            num_workers=num_workers, pin_memory=pin_memory, 
+            persistent_workers=True if num_workers > 0 else False,
+            prefetch_factor=2 if num_workers > 0 else 2
         )
         
         self.val_loader = DataLoader(
             val_dataset, batch_size=self.batch_size, shuffle=False,
-            num_workers=num_workers, pin_memory=pin_memory
+            num_workers=num_workers, pin_memory=pin_memory,
+            persistent_workers=True if num_workers > 0 else False,
+            prefetch_factor=2 if num_workers > 0 else 2
         )
         
         self.test_loader = DataLoader(
             test_dataset, batch_size=self.batch_size, shuffle=False,
-            num_workers=num_workers, pin_memory=pin_memory
+            num_workers=num_workers, pin_memory=pin_memory,
+            persistent_workers=True if num_workers > 0 else False,
+            prefetch_factor=2 if num_workers > 0 else 2
         )
         
         print(f"데이터 로더 설정 완료:")
@@ -473,7 +478,7 @@ def main():
     print("="*60)
     
     # 실험 설정
-    experiment = CIFARExperiment(batch_size=128)
+    experiment = CIFARExperiment(batch_size=256)
     
     # 실험 실행
     results = experiment.run_experiment(epochs=100, lr=0.001, weight_decay=5e-4)
@@ -482,11 +487,11 @@ def main():
     experiment.analyze_results(results)
     
     # 시각화
-    save_path = '/Users/leekeonsoo/Desktop/Code/Python/2025_AI_Paper/cifar10_results.png'
+    save_path = 'cifar10_results.png'
     experiment.plot_results(results, save_path)
     
     # 결과 저장
-    experiment.save_results(results, '/Users/leekeonsoo/Desktop/Code/Python/2025_AI_Paper/results')
+    experiment.save_results(results, 'results')
     
     print("\n실험 완료!")
 

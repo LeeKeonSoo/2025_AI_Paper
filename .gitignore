@@ -1,0 +1,92 @@
+# 데이터셋 폴더
+data/
+*/data/
+**/data/
+
+# MNIST 데이터셋
+*.gz
+MNIST/
+*/MNIST/
+**/MNIST/
+
+# CIFAR 데이터셋
+cifar-10-python.tar.gz
+cifar-10-batches-py/
+cifar-100-python.tar.gz
+cifar-100-binary.tar.gz
+*/cifar-10-batches-py/
+**/cifar-10-batches-py/
+
+# 실험 결과 및 로그
+results/
+logs/
+checkpoints/
+*.log
+*.png
+*.jpg
+*.jpeg
+*.pdf
+
+# Python 관련
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# 환경 변수
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS 관련
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# 모델 파일
+*.pth
+*.pt
+*.h5
+*.pkl
+*.joblib
+
+# 임시 파일
+*.tmp
+*.temp
+tmp/
+temp/
