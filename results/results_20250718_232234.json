@@ -1,0 +1,58 @@
+{
+  "adam": {
+    "best_val_acc": 97.15833333333333,
+    "final_test_acc": 98.51,
+    "total_time": 199.50224018096924,
+    "final_train_loss": 0.12332866404453913,
+    "final_val_loss": 0.08976788416584121,
+    "config": {
+      "name": "adam",
+      "params": {
+        "lr": 0.001,
+        "weight_decay": 0.0001
+      }
+    }
+  },
+  "adamw": {
+    "best_val_acc": 97.35,
+    "final_test_acc": 98.62,
+    "total_time": 198.5260181427002,
+    "final_train_loss": 0.11552673689027627,
+    "final_val_loss": 0.0882183463768439,
+    "config": {
+      "name": "adamw",
+      "params": {
+        "lr": 0.001,
+        "weight_decay": 0.0001
+      }
+    }
+  },
+  "adamabs": {
+    "best_val_acc": 96.26666666666667,
+    "final_test_acc": 97.84,
+    "total_time": 198.26510286331177,
+    "final_train_loss": 0.18543745943903922,
+    "final_val_loss": 0.13934456568924672,
+    "config": {
+      "name": "adamabs",
+      "params": {
+        "lr": 0.001,
+        "weight_decay": 0.0001
+      }
+    }
+  },
+  "adamabsw": {
+    "best_val_acc": 96.39166666666667,
+    "final_test_acc": 97.61,
+    "total_time": 199.93138003349304,
+    "final_train_loss": 0.19797332643469176,
+    "final_val_loss": 0.13082702148784983,
+    "config": {
+      "name": "adamabsw",
+      "params": {
+        "lr": 0.001,
+        "weight_decay": 0.0001
+      }
+    }
+  }
+}
