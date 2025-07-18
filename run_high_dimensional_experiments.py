@@ -19,17 +19,34 @@ from high_dimensional_experiments import HighDimensionalExperiment, ResNet18, Si
 
 
 def check_gpu_memory():
-    """GPU 메모리 확인"""
+    """GPU 메모리 확인 및 CUDA 환경 설정"""
     if torch.cuda.is_available():
         device = torch.cuda.current_device()
         total_memory = torch.cuda.get_device_properties(device).total_memory / 1024**3
         allocated_memory = torch.cuda.memory_allocated(device) / 1024**3
         free_memory = total_memory - allocated_memory
         
-        print(f"GPU 메모리 상태:")
+        print(f"CUDA 환경 정보:")
+        print(f"  GPU: {torch.cuda.get_device_name(device)}")
+        print(f"  CUDA Version: {torch.version.cuda}")
+        print(f"  cuDNN Version: {torch.backends.cudnn.version()}")
         print(f"  총 메모리: {total_memory:.2f}GB")
         print(f"  사용 중: {allocated_memory:.2f}GB")
         print(f"  사용 가능: {free_memory:.2f}GB")
+        
+        # CUDA 최적화 설정
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cudnn.deterministic = False
+        torch.backends.cudnn.enabled = True
+        
+        # Mixed precision 지원 확인
+        if hasattr(torch.cuda, 'amp'):
+            print(f"  Mixed Precision (AMP): 지원됨")
+        else:
+            print(f"  Mixed Precision (AMP): 지원되지 않음")
+        
+        # 메모리 최적화
+        torch.cuda.empty_cache()
         
         if free_memory < 4.0:
             print("⚠️  경고: GPU 메모리가 부족할 수 있습니다. 배치 크기를 줄이는 것을 고려하세요.")
@@ -377,10 +394,17 @@ def main():
     # GPU 메모리 확인
     free_memory = check_gpu_memory()
     
-    # 배치 크기 조정 (GPU 메모리 부족 시)
-    if free_memory < 4.0 and args.batch_size > 64:
-        print("⚠️  GPU 메모리 부족으로 배치 크기를 64로 조정합니다.")
-        args.batch_size = 64
+    # 배치 크기 자동 조정 (GPU 메모리 기반)
+    if torch.cuda.is_available():
+        if free_memory < 4.0 and args.batch_size > 32:
+            print("⚠️  GPU 메모리 부족으로 배치 크기를 32로 조정합니다.")
+            args.batch_size = 32
+        elif free_memory < 6.0 and args.batch_size > 64:
+            print("⚠️  GPU 메모리 부족으로 배치 크기를 64로 조정합니다.")
+            args.batch_size = 64
+        elif free_memory < 8.0 and args.batch_size > 128:
+            print("⚠️  GPU 메모리 부족으로 배치 크기를 128로 조정합니다.")
+            args.batch_size = 128
     
     # 결과 저장 디렉토리 생성
     os.makedirs(args.save_dir, exist_ok=True)

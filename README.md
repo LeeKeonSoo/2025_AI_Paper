@@ -182,3 +182,26 @@ scikit-learn>=1.0.0
 
   이 코드로 고차원 데이터에서 AdamAbs의 성능을 체계적으로 검증할 수
   있습니다!
+
+    cuda_benchmark.py
+
+  - GPU 성능 벤치마크
+  - 메모리 사용량 모니터링
+  - FP32 vs FP16 속도 비교
+  - 최적화 알고리즘별 효율성 측정
+
+  🎯 실행 방법:
+
+  메인 실험 (CUDA 최적화):
+
+  cd /Users/leekeonsoo/Desktop/Code/Python/2025_AI_Paper
+  python run_high_dimensional_experiments.py
+
+  CUDA 벤치마크:
+
+  python cuda_benchmark.py
+
+  특정 실험 (GPU 메모리 부족 시):
+
+  python run_high_dimensional_experiments.py --experiment quick
+  --batch_size 32

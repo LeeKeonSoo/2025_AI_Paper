@@ -176,15 +176,44 @@ class SimpleViT(nn.Module):
 
 
 class HighDimensionalExperiment:
-    """고차원 데이터셋 실험 클래스"""
+    """고차원 데이터셋 실험 클래스 (CUDA 최적화)"""
     
     def __init__(self, data_dir='./data', device=None):
         self.data_dir = data_dir
-        self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        
+        # CUDA 환경 최적화
+        if device is None:
+            if torch.cuda.is_available():
+                self.device = torch.device('cuda')
+                # CUDA 최적화 설정
+                torch.backends.cudnn.benchmark = True
+                torch.backends.cudnn.deterministic = False
+                torch.backends.cudnn.enabled = True
+            else:
+                self.device = torch.device('cpu')
+        else:
+            self.device = device
         
         print(f"Device: {self.device}")
         if torch.cuda.is_available():
+            print(f"GPU: {torch.cuda.get_device_name(0)}")
             print(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f}GB")
+            print(f"CUDA Version: {torch.version.cuda}")
+            print(f"cuDNN Version: {torch.backends.cudnn.version()}")
+            print(f"CUDA Benchmark: {torch.backends.cudnn.benchmark}")
+            
+            # 메모리 사용량 최적화
+            torch.cuda.empty_cache()
+            
+            # Mixed precision 지원 확인
+            if torch.cuda.is_available() and hasattr(torch.cuda, 'amp'):
+                print("Mixed precision (AMP) support: Available")
+                self.use_amp = True
+            else:
+                print("Mixed precision (AMP) support: Not available")
+                self.use_amp = False
+        else:
+            self.use_amp = False
     
     def create_high_dimensional_synthetic_data(self, n_samples=5000, n_features=1000, n_classes=10):
         """고차원 합성 데이터 생성"""
@@ -253,10 +282,19 @@ class HighDimensionalExperiment:
         val_size = len(train_dataset) - train_size
         train_dataset, val_dataset = random_split(train_dataset, [train_size, val_size])
         
-        # 데이터 로더 생성
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
-        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+        # 데이터 로더 생성 (CUDA 최적화)
+        num_workers = 4 if torch.cuda.is_available() else 0
+        pin_memory = torch.cuda.is_available()
+        
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, 
+                                 num_workers=num_workers, pin_memory=pin_memory, 
+                                 persistent_workers=True if num_workers > 0 else False)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, 
+                               num_workers=num_workers, pin_memory=pin_memory,
+                               persistent_workers=True if num_workers > 0 else False)
+        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, 
+                                num_workers=num_workers, pin_memory=pin_memory,
+                                persistent_workers=True if num_workers > 0 else False)
         
         return train_loader, val_loader, test_loader, num_classes
     
@@ -276,9 +314,16 @@ class HighDimensionalExperiment:
             generator=torch.Generator().manual_seed(42)
         )
         
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
-        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+        # CUDA 최적화된 데이터 로더
+        num_workers = 4 if torch.cuda.is_available() else 0
+        pin_memory = torch.cuda.is_available()
+        
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True,
+                                 num_workers=num_workers, pin_memory=pin_memory)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False,
+                               num_workers=num_workers, pin_memory=pin_memory)
+        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False,
+                                num_workers=num_workers, pin_memory=pin_memory)
         
         return train_loader, val_loader, test_loader, n_features, n_classes
     
@@ -301,7 +346,7 @@ class HighDimensionalExperiment:
         return nn.Sequential(*layers)
     
     def train_epoch(self, model, optimizer, criterion, train_loader, epoch, verbose=False):
-        """한 에포크 훈련"""
+        """한 에포크 훈련 (CUDA 최적화 및 Mixed Precision)"""
         model.train()
         running_loss = 0.0
         correct = 0
@@ -311,22 +356,63 @@ class HighDimensionalExperiment:
         param_norms = []
         lr_effective_list = []
         
+        # Mixed precision 스케일러
+        if self.use_amp:
+            scaler = torch.cuda.amp.GradScaler()
+        
         for batch_idx, (data, target) in enumerate(train_loader):
-            data, target = data.to(self.device), target.to(self.device)
+            # 데이터를 GPU로 이동 (non_blocking=True로 최적화)
+            data = data.to(self.device, non_blocking=True)
+            target = target.to(self.device, non_blocking=True)
             
             optimizer.zero_grad()
-            output = model(data)
-            loss = criterion(output, target)
-            loss.backward()
             
-            # Gradient norm 계산
-            total_norm = 0
-            for p in model.parameters():
-                if p.grad is not None:
-                    param_norm = p.grad.data.norm(2)
-                    total_norm += param_norm.item() ** 2
-            total_norm = total_norm ** (1. / 2)
-            grad_norms.append(total_norm)
+            # Mixed precision 사용
+            if self.use_amp:
+                with torch.cuda.amp.autocast():
+                    output = model(data)
+                    loss = criterion(output, target)
+                
+                # 역전파 (scaled)
+                scaler.scale(loss).backward()
+                
+                # Gradient norm 계산
+                total_norm = 0
+                for p in model.parameters():
+                    if p.grad is not None:
+                        param_norm = p.grad.data.norm(2)
+                        total_norm += param_norm.item() ** 2
+                total_norm = total_norm ** (1. / 2)
+                grad_norms.append(total_norm)
+                
+                # 효과적인 학습률 계산
+                if hasattr(optimizer, 'get_lr_effective'):
+                    lr_eff = optimizer.get_lr_effective()
+                    lr_effective_list.extend(lr_eff)
+                
+                # 옵티마이저 스텝
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                output = model(data)
+                loss = criterion(output, target)
+                loss.backward()
+                
+                # Gradient norm 계산
+                total_norm = 0
+                for p in model.parameters():
+                    if p.grad is not None:
+                        param_norm = p.grad.data.norm(2)
+                        total_norm += param_norm.item() ** 2
+                total_norm = total_norm ** (1. / 2)
+                grad_norms.append(total_norm)
+                
+                # 효과적인 학습률 계산
+                if hasattr(optimizer, 'get_lr_effective'):
+                    lr_eff = optimizer.get_lr_effective()
+                    lr_effective_list.extend(lr_eff)
+                
+                optimizer.step()
             
             # Parameter norm 계산
             param_norm = 0
@@ -335,21 +421,16 @@ class HighDimensionalExperiment:
             param_norm = param_norm ** 0.5
             param_norms.append(param_norm)
             
-            # 효과적인 학습률 계산
-            if hasattr(optimizer, 'get_lr_effective'):
-                lr_eff = optimizer.get_lr_effective()
-                lr_effective_list.extend(lr_eff)
-            
-            optimizer.step()
-            
             running_loss += loss.item()
             _, predicted = torch.max(output.data, 1)
             total += target.size(0)
             correct += (predicted == target).sum().item()
             
             if verbose and batch_idx % 100 == 0:
+                gpu_memory = torch.cuda.memory_allocated() / 1024**3 if torch.cuda.is_available() else 0
                 print(f'Epoch {epoch}, Batch {batch_idx}/{len(train_loader)}, '
-                      f'Loss: {loss.item():.6f}, Acc: {100*correct/total:.2f}%')
+                      f'Loss: {loss.item():.6f}, Acc: {100*correct/total:.2f}%, '
+                      f'GPU Mem: {gpu_memory:.2f}GB')
         
         avg_loss = running_loss / len(train_loader)
         accuracy = 100 * correct / total
@@ -360,7 +441,7 @@ class HighDimensionalExperiment:
         return avg_loss, accuracy, avg_grad_norm, avg_param_norm, avg_lr_effective
     
     def evaluate(self, model, criterion, data_loader):
-        """모델 평가"""
+        """모델 평가 (CUDA 최적화)"""
         model.eval()
         test_loss = 0
         correct = 0
@@ -368,9 +449,20 @@ class HighDimensionalExperiment:
         
         with torch.no_grad():
             for data, target in data_loader:
-                data, target = data.to(self.device), target.to(self.device)
-                output = model(data)
-                test_loss += criterion(output, target).item()
+                # 데이터를 GPU로 이동 (non_blocking=True로 최적화)
+                data = data.to(self.device, non_blocking=True)
+                target = target.to(self.device, non_blocking=True)
+                
+                # Mixed precision 사용
+                if self.use_amp:
+                    with torch.cuda.amp.autocast():
+                        output = model(data)
+                        loss = criterion(output, target)
+                else:
+                    output = model(data)
+                    loss = criterion(output, target)
+                
+                test_loss += loss.item()
                 _, predicted = torch.max(output.data, 1)
                 total += target.size(0)
                 correct += (predicted == target).sum().item()
@@ -401,8 +493,16 @@ class HighDimensionalExperiment:
             print(f"최적화 알고리즘: {opt_name}")
             print(f"{'-'*60}")
             
-            # 모델 초기화
+            # 모델 초기화 및 GPU 이동
             model = model_factory().to(self.device)
+            
+            # 모델 컴파일 (PyTorch 2.0+)
+            if hasattr(torch, 'compile') and torch.cuda.is_available():
+                try:
+                    model = torch.compile(model, mode='max-autotune')
+                    print("모델 컴파일 성공 (PyTorch 2.0+)")
+                except Exception as e:
+                    print(f"모델 컴파일 실패: {e}")
             
             # 파라미터 수 계산
             total_params = sum(p.numel() for p in model.parameters())
@@ -416,6 +516,11 @@ class HighDimensionalExperiment:
             
             # 스케줄러 설정
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=lr*0.01)
+            
+            # GPU 메모리 사용량 체크
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                print(f"GPU 메모리 사용량: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
             
             # 훈련 히스토리 초기화
             history = {
@@ -487,6 +592,10 @@ class HighDimensionalExperiment:
             
             # 최종 테스트
             test_loss, test_acc = self.evaluate(model, criterion, test_loader)
+            
+            # GPU 메모리 정리
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             
             results[opt_name] = {
                 'history': history,
