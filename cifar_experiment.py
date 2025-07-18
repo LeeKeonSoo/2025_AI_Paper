@@ -168,7 +168,7 @@ class CIFARExperiment:
         print(f"  검증 데이터: {len(val_dataset)}개")
         print(f"  테스트 데이터: {len(test_dataset)}개")
     
-    def train_epoch(self, model, optimizer, criterion, epoch, verbose=False):
+    def train_epoch(self, model, optimizer, criterion, epoch):
         """한 에포크 훈련 (CUDA 최적화)"""
         model.train()
         running_loss = 0.0
@@ -205,9 +205,9 @@ class CIFARExperiment:
             total += target.size(0)
             correct += (predicted == target).sum().item()
             
-            if verbose and batch_idx % 100 == 0:
+            if batch_idx % 100 == 0:
                 gpu_memory = torch.cuda.memory_allocated() / 1024**3 if torch.cuda.is_available() else 0
-                print(f'Epoch {epoch}, Batch {batch_idx}/{len(self.train_loader)}, '
+                print(f'Epoch {epoch+1}, Batch {batch_idx}/{len(self.train_loader)}, '
                       f'Loss: {loss.item():.4f}, Acc: {100*correct/total:.2f}%, '
                       f'GPU: {gpu_memory:.1f}GB')
         
@@ -291,7 +291,7 @@ class CIFARExperiment:
             
             for epoch in range(epochs):
                 # 훈련
-                train_loss, train_acc = self.train_epoch(model, optimizer, criterion, epoch, verbose=(epoch % 10 == 0))
+                train_loss, train_acc = self.train_epoch(model, optimizer, criterion, epoch)
                 
                 # 검증
                 val_loss, val_acc = self.evaluate(model, criterion, self.val_loader)
@@ -311,12 +311,11 @@ class CIFARExperiment:
                 if val_acc > best_val_acc:
                     best_val_acc = val_acc
                 
-                # 진행 상황 출력
-                if epoch % 10 == 0:
-                    print(f'  Epoch {epoch+1:3d}/{epochs}: '
-                          f'Train {train_loss:.4f}/{train_acc:.2f}%, '
-                          f'Val {val_loss:.4f}/{val_acc:.2f}%, '
-                          f'LR {current_lr:.2e}')
+                # 진행 상황 출력 (매 에포크)
+                print(f'  Epoch {epoch+1:3d}/{epochs}: '
+                      f'Train {train_loss:.4f}/{train_acc:.2f}%, '
+                      f'Val {val_loss:.4f}/{val_acc:.2f}%, '
+                      f'LR {current_lr:.2e}')
             
             total_time = time.time() - start_time
             
