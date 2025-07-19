@@ -182,7 +182,7 @@ class CIFARExperiment:
         
         # Mixed precision 스케일러
         if self.use_amp:
-            scaler = torch.cuda.amp.GradScaler()
+            scaler = torch.amp.GradScaler('cuda' if torch.cuda.is_available() else 'cpu')
         
         for batch_idx, (data, target) in enumerate(self.train_loader):
             data = data.to(self.device, non_blocking=True)
@@ -192,7 +192,7 @@ class CIFARExperiment:
             
             # Mixed precision 사용
             if self.use_amp:
-                with torch.cuda.amp.autocast():
+                with torch.amp.autocast('cuda' if torch.cuda.is_available() else 'cpu'):
                     output = model(data)
                     loss = criterion(output, target)
                 
@@ -234,7 +234,7 @@ class CIFARExperiment:
                 target = target.to(self.device, non_blocking=True)
                 
                 if self.use_amp:
-                    with torch.cuda.amp.autocast():
+                    with torch.amp.autocast('cuda' if torch.cuda.is_available() else 'cpu'):
                         output = model(data)
                         loss = criterion(output, target)
                 else:
