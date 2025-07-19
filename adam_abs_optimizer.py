@@ -207,14 +207,14 @@ class AdamAbsW(AdamAbs):
         return loss
 
 
-def create_optimizer(optimizer_name: str, model_params, lr: float = 1e-3, 
+def create_optimizer(optimizer_name: str, params, lr: float = 1e-3, 
                     weight_decay: float = 0, **kwargs) -> torch.optim.Optimizer:
     """
     최적화 알고리즘 팩토리 함수
     
     Args:
         optimizer_name: 최적화 알고리즘 이름
-        model_params: 모델 파라미터
+        params: 모델 파라미터
         lr: 학습률
         weight_decay: 가중치 감소
         **kwargs: 추가 파라미터
@@ -225,15 +225,15 @@ def create_optimizer(optimizer_name: str, model_params, lr: float = 1e-3,
     optimizer_name = optimizer_name.lower()
     
     if optimizer_name == 'adam':
-        return optim.Adam(model_params, lr=lr, weight_decay=weight_decay, **kwargs)
+        return optim.Adam(params, lr=lr, weight_decay=weight_decay, **kwargs)
     elif optimizer_name == 'adamw':
-        return optim.AdamW(model_params, lr=lr, weight_decay=weight_decay, **kwargs)
+        return optim.AdamW(params, lr=lr, weight_decay=weight_decay, **kwargs)
     elif optimizer_name == 'adamabs':
-        return AdamAbs(model_params, lr=lr, weight_decay=weight_decay, **kwargs)
+        return AdamAbs(params, lr=lr, weight_decay=weight_decay, **kwargs)
     elif optimizer_name == 'adamabsw':
-        return AdamAbsW(model_params, lr=lr, weight_decay=weight_decay, **kwargs)
+        return AdamAbsW(params, lr=lr, weight_decay=weight_decay, **kwargs)
     elif optimizer_name == 'sgd':
-        return optim.SGD(model_params, lr=lr, weight_decay=weight_decay, 
+        return optim.SGD(params, lr=lr, weight_decay=weight_decay, 
                         momentum=kwargs.get('momentum', 0.9), **kwargs)
     else:
         raise ValueError(f"Unknown optimizer: {optimizer_name}")

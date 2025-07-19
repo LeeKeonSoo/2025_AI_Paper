@@ -277,7 +277,13 @@ class CIFARExperiment:
             print(f"총 파라미터 수: {total_params:,}")
             
             # 최적화 알고리즘 및 스케줄러 설정
-            optimizer = create_optimizer(opt_type, model.parameters(), lr=lr, weight_decay=weight_decay)
+            if opt_type == 'adamabs' and torch.cuda.is_available():
+                # CUDA 최적화된 AdamAbs 사용
+                from optimized_adamabs import OptimizedAdamAbs
+                optimizer = OptimizedAdamAbs(model.parameters(), lr=lr, weight_decay=weight_decay, fused=True)
+                print("  CUDA 최적화된 AdamAbs 사용")
+            else:
+                optimizer = create_optimizer(opt_type, model.parameters(), lr=lr, weight_decay=weight_decay)
             criterion = nn.CrossEntropyLoss()
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
             
