@@ -90,3 +90,7 @@ Thumbs.db
 *.temp
 tmp/
 temp/
+imagenet_results/imagenet_intermediate_custom_adam.json
+imagenet_results/imagenet_intermediate_custom_adamabs.json
+imagenet_results/imagenet_intermediate_custom_adamw.json
+imagenet_results/imagenet_results_20250720_180402.json

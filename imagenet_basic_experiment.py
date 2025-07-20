@@ -246,17 +246,88 @@ class CustomAdamAbs(torch.optim.Optimizer):
         return loss
 
 
-class ImageNetExperiment:
-    """ImageNet 실험 클래스"""
+class TinyImageNetDataset(torch.utils.data.Dataset):
+    """Tiny ImageNet 데이터셋 클래스"""
     
-    def __init__(self, data_dir, batch_size=256, num_workers=8, model_name='resnet50'):
+    def __init__(self, root_dir, split='train', transform=None):
+        self.root_dir = root_dir
+        self.split = split
+        self.transform = transform
+        self.data = []
+        self.targets = []
+        
+        if split == 'train':
+            self._load_train_data()
+        elif split == 'val':
+            self._load_val_data()
+        else:
+            raise ValueError(f"Unsupported split: {split}")
+    
+    def _load_train_data(self):
+        """훈련 데이터 로드"""
+        train_dir = os.path.join(self.root_dir, 'train')
+        class_names = sorted(os.listdir(train_dir))
+        
+        for class_idx, class_name in enumerate(class_names):
+            class_dir = os.path.join(train_dir, class_name, 'images')
+            if os.path.exists(class_dir):
+                for img_name in os.listdir(class_dir):
+                    if img_name.endswith('.JPEG'):
+                        img_path = os.path.join(class_dir, img_name)
+                        self.data.append(img_path)
+                        self.targets.append(class_idx)
+    
+    def _load_val_data(self):
+        """검증 데이터 로드"""
+        val_dir = os.path.join(self.root_dir, 'val')
+        val_annotations = os.path.join(val_dir, 'val_annotations.txt')
+        
+        # 클래스 이름을 인덱스로 매핑
+        train_dir = os.path.join(self.root_dir, 'train')
+        class_names = sorted(os.listdir(train_dir))
+        class_to_idx = {name: idx for idx, name in enumerate(class_names)}
+        
+        with open(val_annotations, 'r') as f:
+            for line in f:
+                parts = line.strip().split('\t')
+                img_name = parts[0]
+                class_name = parts[1]
+                
+                img_path = os.path.join(val_dir, 'images', img_name)
+                if os.path.exists(img_path):
+                    self.data.append(img_path)
+                    self.targets.append(class_to_idx[class_name])
+    
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        img_path = self.data[idx]
+        target = self.targets[idx]
+        
+        # 이미지 로드
+        from PIL import Image
+        image = Image.open(img_path).convert('RGB')
+        
+        if self.transform:
+            image = self.transform(image)
+        
+        return image, target
+
+
+class ImageNetExperiment:
+    """ImageNet/Tiny ImageNet 실험 클래스"""
+    
+    def __init__(self, data_dir, batch_size=256, num_workers=8, model_name='resnet50', dataset_type='imagenet'):
         self.data_dir = data_dir
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.model_name = model_name
+        self.dataset_type = dataset_type  # 'imagenet' or 'tiny_imagenet'
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
-        print(f"ImageNet 실험 환경:")
+        print(f"실험 환경:")
+        print(f"  Dataset: {self.dataset_type}")
         print(f"  Device: {self.device}")
         print(f"  Model: {self.model_name}")
         print(f"  Batch Size: {self.batch_size}")
@@ -274,7 +345,61 @@ class ImageNetExperiment:
         self.setup_data_loaders()
     
     def setup_data_loaders(self):
-        """ImageNet 데이터 로더 설정"""
+        """데이터 로더 설정 (ImageNet/Tiny ImageNet 지원)"""
+        if self.dataset_type == 'tiny_imagenet':
+            self._setup_tiny_imagenet()
+        else:
+            self._setup_imagenet()
+    
+    def _setup_tiny_imagenet(self):
+        """Tiny ImageNet 데이터 로더 설정"""
+        # Tiny ImageNet용 변환 (64x64 → 224x224로 리사이즈)
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                       std=[0.229, 0.224, 0.225])
+        
+        train_transform = transforms.Compose([
+            transforms.Resize(224),  # 64x64 → 224x224
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(10),
+            transforms.ToTensor(),
+            normalize,
+        ])
+        
+        val_transform = transforms.Compose([
+            transforms.Resize(224),
+            transforms.ToTensor(),
+            normalize,
+        ])
+        
+        # Tiny ImageNet 데이터셋 로드
+        train_dataset = TinyImageNetDataset(
+            root_dir=self.data_dir, split='train', transform=train_transform
+        )
+        
+        val_dataset = TinyImageNetDataset(
+            root_dir=self.data_dir, split='val', transform=val_transform
+        )
+        
+        print(f"Tiny ImageNet 데이터 로드 완료:")
+        print(f"  훈련 데이터: {len(train_dataset):,}개")
+        print(f"  검증 데이터: {len(val_dataset):,}개")
+        print(f"  클래스 수: 200개")
+        
+        # 데이터 로더 생성
+        self.train_loader = DataLoader(
+            train_dataset, batch_size=self.batch_size, shuffle=True,
+            num_workers=self.num_workers, pin_memory=True, drop_last=True
+        )
+        
+        self.val_loader = DataLoader(
+            val_dataset, batch_size=self.batch_size, shuffle=False,
+            num_workers=self.num_workers, pin_memory=True
+        )
+        
+        print(f"  배치 수: 훈련 {len(self.train_loader)}, 검증 {len(self.val_loader)}")
+    
+    def _setup_imagenet(self):
+        """원본 ImageNet 데이터 로더 설정"""
         # ImageNet 표준 변환
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                        std=[0.229, 0.224, 0.225])
@@ -302,13 +427,12 @@ class ImageNetExperiment:
             root=self.data_dir, split='val', transform=val_transform
         )
         
-        # 작은 subset으로 테스트 (전체 데이터는 너무 큼)
-        # 실제 실험에서는 이 부분을 제거하고 전체 데이터 사용
-        subset_size = min(100000, len(train_dataset))  # 10만개 샘플로 제한
+        # 작은 subset으로 테스트
+        subset_size = min(100000, len(train_dataset))
         indices = torch.randperm(len(train_dataset))[:subset_size]
         train_subset = torch.utils.data.Subset(train_dataset, indices)
         
-        print(f"데이터셋 크기:")
+        print(f"ImageNet 데이터 로드 완료:")
         print(f"  훈련 데이터: {len(train_subset):,}개 (원본: {len(train_dataset):,}개)")
         print(f"  검증 데이터: {len(val_dataset):,}개")
         
@@ -326,13 +450,15 @@ class ImageNetExperiment:
         print(f"  배치 수: 훈련 {len(self.train_loader)}, 검증 {len(self.val_loader)}")
     
     def create_model(self):
-        """모델 생성"""
+        """모델 생성 (Tiny ImageNet은 200 클래스)"""
+        num_classes = 200 if self.dataset_type == 'tiny_imagenet' else 1000
+        
         if self.model_name == 'resnet50':
-            model = models.resnet50(weights=None, num_classes=1000)
+            model = models.resnet50(weights=None, num_classes=num_classes)
         elif self.model_name == 'resnet18':
-            model = models.resnet18(weights=None, num_classes=1000)
+            model = models.resnet18(weights=None, num_classes=num_classes)
         elif self.model_name == 'efficientnet_b0':
-            model = models.efficientnet_b0(weights=None, num_classes=1000)
+            model = models.efficientnet_b0(weights=None, num_classes=num_classes)
         else:
             raise ValueError(f"Unsupported model: {self.model_name}")
         
@@ -585,38 +711,148 @@ class ImageNetExperiment:
     def analyze_results(self, results):
         """결과 분석"""
         print(f"\n{'='*100}")
-        print("ImageNet 실험 결과 분석")
+        print("실험 결과 분석")
         print(f"{'='*100}")
         
-        # 성능 비교
+        # 1. 최종 성능 비교
         print("\n1. 최종 성능 비교:")
-        print(f"{'Optimizer':<15} {'Best Top-1':<10} {'Best Top-5':<10} {'Final Top-1':<11} {'Final Top-5':<11}")
+        if self.dataset_type == 'tiny_imagenet':
+            print(f"{'Optimizer':<15} {'Best Top-1':<10} {'Final Top-1':<11} {'Best Val Acc':<12}")
+            print("-" * 55)
+            for opt_name, result in results.items():
+                print(f"{opt_name:<15} {result['best_top1']:>8.2f}% "
+                      f"{result['final_top1']:>9.2f}% "
+                      f"{result['best_top1']:>10.2f}%")
+        else:
+            print(f"{'Optimizer':<15} {'Best Test Acc':<12} {'Final Test Acc':<13} {'Best Val Acc':<12}")
+            print("-" * 60)
+            for opt_name, result in results.items():
+                print(f"{opt_name:<15} {result['best_test_acc']:>10.2f}% "
+                      f"{result['final_test_acc']:>11.2f}% "
+                      f"{result['best_val_acc']:>10.2f}%")
+        
+        # 2. 훈련 시간 비교 (시분초 형식)
+        print("\n2. 훈련 시간 비교:")
+        print(f"{'Optimizer':<15} {'Total Time':<12} {'Avg Epoch Time':<15} {'Avg Batch Time':<15}")
         print("-" * 70)
         for opt_name, result in results.items():
-            print(f"{opt_name:<15} {result['best_top1']:>8.2f}% "
-                  f"{result['best_top5']:>8.2f}% "
-                  f"{result['final_top1']:>9.2f}% "
-                  f"{result['final_top5']:>9.2f}%")
+            total_time = result['total_time']
+            avg_epoch_time = result['avg_epoch_time']
+            avg_batch_time = result['avg_batch_time'] * 1000  # ms로 변환
+            
+            # 시분초 변환
+            total_hours = int(total_time // 3600)
+            total_minutes = int((total_time % 3600) // 60)
+            total_seconds = int(total_time % 60)
+            
+            epoch_minutes = int(avg_epoch_time // 60)
+            epoch_seconds = int(avg_epoch_time % 60)
+            
+            if total_hours > 0:
+                total_str = f"{total_hours:02d}:{total_minutes:02d}:{total_seconds:02d}"
+            else:
+                total_str = f"{total_minutes:02d}:{total_seconds:02d}"
+            
+            if epoch_minutes > 0:
+                epoch_str = f"{epoch_minutes:02d}:{epoch_seconds:02d}"
+            else:
+                epoch_str = f"{epoch_seconds:02d}s"
+            
+            print(f"{opt_name:<15} {total_str:>9s} "
+                  f"{epoch_str:>12s} "
+                  f"{avg_batch_time:>12.1f}ms")
         
-        # 시간 효율성
-        print("\n2. 시간 효율성:")
-        print(f"{'Optimizer':<15} {'Total Time':<12} {'Avg Epoch':<12} {'Avg Batch':<12}")
-        print("-" * 60)
+        # 3. 수렴 분석
+        print("\n3. 수렴 분석:")
         for opt_name, result in results.items():
-            total_hours = result['total_time'] / 3600
-            epoch_minutes = result['avg_epoch_time'] / 60
-            batch_ms = result['avg_batch_time'] * 1000
-            print(f"{opt_name:<15} {total_hours:>9.1f}h "
-                  f"{epoch_minutes:>9.1f}m "
-                  f"{batch_ms:>9.1f}ms")
+            if self.dataset_type == 'tiny_imagenet':
+                val_acc_history = [acc for acc in result['history']['val_top1'] if acc > 0]
+            else:
+                val_acc_history = result['history']['val_acc']
+            
+            if val_acc_history:
+                convergence_epoch = self.find_convergence_epoch(val_acc_history)
+                final_stability = np.std(val_acc_history[-10:]) if len(val_acc_history) >= 10 else 0
+                
+                print(f"  {opt_name}:")
+                print(f"    수렴 에포크: {convergence_epoch}")
+                print(f"    최종 안정성 (std): {final_stability:.3f}")
+                print(f"    최고 성능 달성 에포크: {np.argmax(val_acc_history) + 1}")
         
-        # 효율성 지표
-        print("\n3. 효율성 지표 (성능/시간):")
-        for opt_name, result in results.items():
-            efficiency = result['best_top1'] / (result['total_time'] / 3600)  # 정확도/시간
-            print(f"  {opt_name}: {efficiency:.2f} (Top-1% per hour)")
+        # 4. Adam vs AdamAbs 상세 비교
+        if 'Custom_Adam' in results and 'Custom_AdamAbs' in results:
+            adam_result = results['Custom_Adam']
+            adamabs_result = results['Custom_AdamAbs']
+            
+            print("\n4. Custom_Adam vs Custom_AdamAbs 상세 비교:")
+            
+            # 성능 차이
+            if self.dataset_type == 'tiny_imagenet':
+                acc_diff = adamabs_result['best_top1'] - adam_result['best_top1']
+            else:
+                acc_diff = adamabs_result['best_test_acc'] - adam_result['best_test_acc']
+            
+            time_diff = adamabs_result['total_time'] - adam_result['total_time']
+            time_pct = (time_diff / adam_result['total_time']) * 100
+            
+            print(f"  정확도 차이: {acc_diff:+.3f}% (AdamAbs - Adam)")
+            print(f"  훈련 시간 차이: {time_diff:+.1f}초 ({time_pct:+.2f}%)")
+            
+            # 배치당 시간 비교
+            adam_batch_time = adam_result['avg_batch_time'] * 1000
+            adamabs_batch_time = adamabs_result['avg_batch_time'] * 1000
+            batch_time_diff = adamabs_batch_time - adam_batch_time
+            batch_time_pct = (batch_time_diff / adam_batch_time) * 100
+            
+            print(f"  배치당 시간 차이: {batch_time_diff:+.2f}ms ({batch_time_pct:+.2f}%)")
+        
+        # 5. 최고 성능자 찾기
+        if self.dataset_type == 'tiny_imagenet':
+            best_acc_optimizer = max(results.keys(), key=lambda x: results[x]['best_top1'])
+            best_acc = results[best_acc_optimizer]['best_top1']
+        else:
+            best_acc_optimizer = max(results.keys(), key=lambda x: results[x]['best_test_acc'])
+            best_acc = results[best_acc_optimizer]['best_test_acc']
+        
+        fastest_optimizer = min(results.keys(), key=lambda x: results[x]['total_time'])
+        fastest_time = results[fastest_optimizer]['total_time']
+        
+        print(f"\n5. 종합 평가:")
+        print(f"  최고 정확도: {best_acc_optimizer} ({best_acc:.2f}%)")
+        
+        # 최고 속도 시분초 표시
+        hours = int(fastest_time // 3600)
+        minutes = int((fastest_time % 3600) // 60)
+        seconds = int(fastest_time % 60)
+        
+        if hours > 0:
+            time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        else:
+            time_str = f"{minutes:02d}:{seconds:02d}"
+        
+        print(f"  최고 속도: {fastest_optimizer} ({time_str})")
         
         return results
+    
+    def find_convergence_epoch(self, val_acc_history, patience=5, min_improvement=0.1):
+        """수렴 에포크 찾기"""
+        if len(val_acc_history) < patience:
+            return len(val_acc_history)
+        
+        best_acc = 0
+        patience_counter = 0
+        
+        for epoch, acc in enumerate(val_acc_history):
+            if acc > best_acc + min_improvement:
+                best_acc = acc
+                patience_counter = 0
+            else:
+                patience_counter += 1
+                
+            if patience_counter >= patience:
+                return epoch - patience + 1
+        
+        return len(val_acc_history)
     
     def plot_results(self, results, save_path=None):
         """결과 시각화"""
@@ -663,34 +899,50 @@ class ImageNetExperiment:
         ax.grid(True, alpha=0.3)
         ax.set_yscale('log')
         
-        # 4. 최고 Top-1 정확도
+        # 4. 최고 Top-1 정확도 (또는 Test Accuracy)
         ax = axes[1, 0]
         opt_names = list(results.keys())
-        top1_accs = [results[name]['best_top1'] for name in opt_names]
+        
+        if self.dataset_type == 'tiny_imagenet':
+            test_accs = [results[name]['best_top1'] for name in opt_names]
+            title = 'Best Top-1 Accuracy'
+        else:
+            test_accs = [results[name]['best_test_acc'] for name in opt_names]
+            title = 'Best Test Accuracy'
+            
         colors_list = [colors.get(name, 'gray') for name in opt_names]
         
-        bars = ax.bar(opt_names, top1_accs, color=colors_list, alpha=0.8)
-        ax.set_title('Best Top-1 Accuracy', fontsize=14, fontweight='bold')
+        bars = ax.bar(opt_names, test_accs, color=colors_list, alpha=0.8)
+        ax.set_title(title, fontsize=14, fontweight='bold')
         ax.set_ylabel('Accuracy (%)')
         
         # 막대 위에 값 표시
-        for bar, acc in zip(bars, top1_accs):
+        for bar, acc in zip(bars, test_accs):
             ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5,
                    f'{acc:.1f}%', ha='center', va='bottom', fontweight='bold')
         
         plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
         
-        # 5. 훈련 시간 (시간 단위)
+        # 5. 훈련 시간 (시분초 형식으로 표시)
         ax = axes[1, 1]
-        times_hours = [results[name]['total_time'] / 3600 for name in opt_names]
-        bars = ax.bar(opt_names, times_hours, color=colors_list, alpha=0.8)
+        times = [results[name]['total_time'] for name in opt_names]
+        bars = ax.bar(opt_names, times, color=colors_list, alpha=0.8)
         ax.set_title('Total Training Time', fontsize=14, fontweight='bold')
-        ax.set_ylabel('Time (hours)')
+        ax.set_ylabel('Time (seconds)')
         
-        # 막대 위에 값 표시
-        for bar, time_val in zip(bars, times_hours):
-            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(times_hours)*0.01,
-                   f'{time_val:.1f}h', ha='center', va='bottom', fontweight='bold')
+        # 막대 위에 시분초 형식으로 값 표시
+        for bar, time_val in zip(bars, times):
+            hours = int(time_val // 3600)
+            minutes = int((time_val % 3600) // 60)
+            seconds = int(time_val % 60)
+            
+            if hours > 0:
+                time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            else:
+                time_str = f"{minutes:02d}:{seconds:02d}"
+            
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(times)*0.01,
+                   time_str, ha='center', va='bottom', fontweight='bold')
         
         plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
         
@@ -745,37 +997,44 @@ class ImageNetExperiment:
         
         print(f"중간 결과 저장: {filepath}")
     
-    def save_results(self, results, save_dir='./imagenet_results'):
+    def save_results(self, results, save_dir='./results'):
         """최종 결과 저장"""
         os.makedirs(save_dir, exist_ok=True)
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        results_file = os.path.join(save_dir, f'imagenet_results_{timestamp}.json')
+        results_file = os.path.join(save_dir, f'{self.dataset_type}_results_{timestamp}.json')
         
-        # 상세 결과 저장 (히스토리 포함)
-        detailed_results = {}
+        # JSON 직렬화 가능한 형태로 변환
+        serializable_results = {}
         for opt_name, result in results.items():
-            detailed_results[opt_name] = {
+            serializable_results[opt_name] = {
                 'optimizer_name': result['optimizer_name'],
                 'model_name': result['model_name'],
-                'best_top1': result['best_top1'],
-                'best_top5': result['best_top5'],
-                'final_top1': result['final_top1'],
-                'final_top5': result['final_top5'],
+                'dataset_type': self.dataset_type,
                 'total_time': result['total_time'],
                 'avg_epoch_time': result['avg_epoch_time'],
                 'avg_batch_time': result['avg_batch_time'],
                 'total_params': result['total_params'],
-                'config': result['config'],
-                'history_summary': {
-                    'final_train_loss': result['history']['train_loss'][-1] if result['history']['train_loss'] else 0,
-                    'max_train_top1': max(result['history']['train_top1']) if result['history']['train_top1'] else 0,
-                    'efficiency_score': result['best_top1'] / (result['total_time'] / 3600)  # 성능/시간
-                }
+                'config': result['config']
             }
+            
+            # 데이터셋에 따른 성능 지표 추가
+            if self.dataset_type == 'tiny_imagenet':
+                serializable_results[opt_name].update({
+                    'best_top1': result['best_top1'],
+                    'best_top5': result['best_top5'],
+                    'final_top1': result['final_top1'],
+                    'final_top5': result['final_top5']
+                })
+            else:
+                serializable_results[opt_name].update({
+                    'best_test_acc': result['best_test_acc'],
+                    'best_val_acc': result['best_val_acc'],
+                    'final_test_acc': result['final_test_acc']
+                })
         
         with open(results_file, 'w') as f:
-            json.dump(detailed_results, f, indent=2)
+            json.dump(serializable_results, f, indent=2)
         
         print(f"\n최종 결과 저장: {results_file}")
         return results_file
@@ -844,74 +1103,387 @@ def benchmark_operations(device='cuda', tensor_size=10000000, iterations=1000):
 
 def main():
     """메인 실행 함수"""
-    parser = argparse.ArgumentParser(description='ImageNet Custom Optimizer Experiment')
-    parser.add_argument('--data-dir', type=str, required=True,
-                       help='ImageNet 데이터 디렉토리 경로')
-    parser.add_argument('--model', type=str, default='resnet50',
-                       choices=['resnet18', 'resnet50', 'efficientnet_b0'],
-                       help='사용할 모델')
-    parser.add_argument('--batch-size', type=int, default=256,
-                       help='배치 크기')
-    parser.add_argument('--epochs', type=int, default=30,
-                       help='훈련 에포크 수')
-    parser.add_argument('--lr', type=float, default=0.1,
-                       help='학습률')
-    parser.add_argument('--weight-decay', type=float, default=1e-4,
-                       help='가중치 감소')
-    parser.add_argument('--num-workers', type=int, default=8,
-                       help='데이터 로더 워커 수')
-    parser.add_argument('--benchmark-only', action='store_true',
-                       help='연산 벤치마크만 실행')
+    # VSCode에서 바로 실행할 때를 위한 기본 설정
+    default_config = {
+        'data_dir': './data',  # 기본 데이터 디렉토리
+        'model': 'resnet18',   # 빠른 테스트를 위해 작은 모델
+        'batch_size': 128,     # VSCode 환경에 맞는 배치 크기
+        'epochs': 5,           # 빠른 실험을 위한 적은 에포크
+        'lr': 0.01,            # 작은 학습률
+        'weight_decay': 1e-4,
+        'num_workers': 2,      # VSCode 환경에 맞는 워커 수
+        'benchmark_only': False
+    }
     
-    args = parser.parse_args()
+    # argparse 설정 (명령행 인자가 있을 때만 사용)
+    import sys
+    if len(sys.argv) > 1:  # 명령행 인자가 있는 경우
+        parser = argparse.ArgumentParser(description='ImageNet Custom Optimizer Experiment')
+        parser.add_argument('--data-dir', type=str, default=default_config['data_dir'],
+                           help='ImageNet 데이터 디렉토리 경로')
+        parser.add_argument('--model', type=str, default=default_config['model'],
+                           choices=['resnet18', 'resnet50', 'efficientnet_b0'],
+                           help='사용할 모델')
+        parser.add_argument('--batch-size', type=int, default=default_config['batch_size'],
+                           help='배치 크기')
+        parser.add_argument('--epochs', type=int, default=default_config['epochs'],
+                           help='훈련 에포크 수')
+        parser.add_argument('--lr', type=float, default=default_config['lr'],
+                           help='학습률')
+        parser.add_argument('--weight-decay', type=float, default=default_config['weight_decay'],
+                           help='가중치 감소')
+        parser.add_argument('--num-workers', type=int, default=default_config['num_workers'],
+                           help='데이터 로더 워커 수')
+        parser.add_argument('--benchmark-only', action='store_true',
+                           help='연산 벤치마크만 실행')
+        
+        args = parser.parse_args()
+        config = vars(args)  # argparse 결과를 딕셔너리로 변환
+    else:  # VSCode에서 바로 실행하는 경우
+        print("VSCode 직접 실행 모드 - 기본 설정 사용")
+        config = default_config
+        
+        # 사용자가 수정할 수 있는 설정
+        config.update({
+            'data_dir': './data',           # 여기서 데이터 경로 수정 가능
+            'model': 'resnet18',            # resnet18, resnet50, efficientnet_b0
+            'batch_size': 64,               # GPU 메모리에 맞게 조정
+            'epochs': 3,                    # 빠른 테스트용
+            'lr': 0.001,                    # 안정적인 학습률
+            'benchmark_only': False,        # True로 하면 벤치마크만 실행
+        })
     
     print("ImageNet Custom Optimizer 비교 실험")
     print("="*100)
+    print(f"실행 모드: {'Command Line' if len(sys.argv) > 1 else 'VSCode Direct'}")
     print(f"설정:")
-    print(f"  모델: {args.model}")
-    print(f"  배치 크기: {args.batch_size}")
-    print(f"  에포크: {args.epochs}")
-    print(f"  학습률: {args.lr}")
-    print(f"  가중치 감소: {args.weight_decay}")
+    print(f"  데이터 디렉토리: {config['data_dir']}")
+    print(f"  모델: {config['model']}")
+    print(f"  배치 크기: {config['batch_size']}")
+    print(f"  에포크: {config['epochs']}")
+    print(f"  학습률: {config['lr']}")
+    print(f"  가중치 감소: {config['weight_decay']}")
+    print(f"  워커 수: {config['num_workers']}")
     print("="*100)
     
     # 연산 벤치마크
     if torch.cuda.is_available():
+        print("\nGPU 연산 벤치마크 실행 중...")
         benchmark_operations(device='cuda')
     else:
-        print("CUDA를 사용할 수 없어 연산 벤치마크를 건너뜁니다.")
+        print("\nCPU 환경에서 실행 중...")
+        benchmark_operations(device='cpu', tensor_size=1000000, iterations=100)
     
-    if args.benchmark_only:
+    if config['benchmark_only']:
+        print("벤치마크만 실행하고 종료합니다.")
         return
     
-    # ImageNet 실험
+    # 데이터 디렉토리 확인 및 데이터셋 결정
+    data_dir = config['data_dir']
+    dataset_type = None
+    
+    # Tiny ImageNet 확인
+    tiny_imagenet_path = os.path.join(data_dir, 'tiny-imagenet-200')
+    if os.path.exists(tiny_imagenet_path):
+        # 필수 폴더 확인
+        required_folders = ['train', 'val']
+        if all(os.path.exists(os.path.join(tiny_imagenet_path, folder)) for folder in required_folders):
+            dataset_type = 'tiny_imagenet'
+            data_dir = tiny_imagenet_path
+            print(f"✅ Tiny ImageNet 데이터 발견: {data_dir}")
+        else:
+            print(f"❌ Tiny ImageNet 폴더 구조가 올바르지 않습니다.")
+            print(f"필요한 폴더: {required_folders}")
+    
+    # 일반 ImageNet 확인 (data_dir 직접)
+    elif os.path.exists(os.path.join(data_dir, 'train')) and os.path.exists(os.path.join(data_dir, 'val')):
+        dataset_type = 'imagenet'
+        print(f"✅ ImageNet 데이터 발견: {data_dir}")
+    
+    # 데이터 없음
+    if dataset_type is None:
+        print(f"❌ ImageNet/Tiny ImageNet 데이터를 찾을 수 없습니다.")
+        print(f"확인한 경로: {config['data_dir']}")
+        print(f"Tiny ImageNet 경로: {tiny_imagenet_path}")
+        print("\n📥 Tiny ImageNet 다운로드 방법:")
+        print("  1. http://cs231n.stanford.edu/tiny-imagenet-200.zip 다운로드")
+        print("  2. 압축 해제하여 ./data/ 폴더에 넣기")
+        print("  3. 폴더 구조: ./data/tiny-imagenet-200/train, ./data/tiny-imagenet-200/val")
+        return
+    
+    # ImageNet/Tiny ImageNet 실험
+    try:
+        experiment = ImageNetExperiment(
+            data_dir=data_dir,
+            batch_size=config['batch_size'],
+            num_workers=config['num_workers'],
+            model_name=config['model'],
+            dataset_type=dataset_type
+        )
+        
+        # 실험 실행
+        results = experiment.run_comparison_experiment(
+            epochs=config['epochs'],
+            lr=config['lr'],
+            weight_decay=config['weight_decay']
+        )
+        
+        # 결과 분석
+        experiment.analyze_results(results)
+        
+        # 시각화
+        save_path = f'{dataset_type}_{config["model"]}_comparison.png'
+        experiment.plot_results(results, save_path)
+        
+        # 결과 저장
+        experiment.save_results(results)
+        
+        print(f"\n" + "="*100)
+        print(f"🎉 {dataset_type.upper()} 실험 완료!")
+        print("="*100)
+        
+    except Exception as e:
+        print(f"\n❌ {dataset_type} 실험 중 오류 발생:")
+        print(f"Error: {e}")
+        print("\n해결 방법:")
+        print("1. 데이터 경로 확인")
+        print("2. 필요한 라이브러리 설치 확인 (PIL)")
+        print("3. GPU 메모리 부족시 batch_size 줄이기")
+
+
+def run_cifar10_substitute(config):
+    """CIFAR-10 대체 실험 제거됨"""
+    print("CIFAR-10 대체 실험은 제거되었습니다.")
+    print("Tiny ImageNet 데이터를 다운로드하여 사용하세요.")
+    print("📥 다운로드: http://cs231n.stanford.edu/tiny-imagenet-200.zip")
+
+
+def run_tiny_imagenet_experiment(data_dir='./data', model='resnet18', epochs=20):
+    """Tiny ImageNet 실험 직접 실행"""
+    print("🚀 Tiny ImageNet 실험")
+    print("="*80)
+    
+    tiny_path = os.path.join(data_dir, 'tiny-imagenet-200')
+    if not os.path.exists(tiny_path):
+        print(f"❌ Tiny ImageNet 데이터가 없습니다: {tiny_path}")
+        print("📥 다운로드: http://cs231n.stanford.edu/tiny-imagenet-200.zip")
+        return None
+    
     experiment = ImageNetExperiment(
-        data_dir=args.data_dir,
-        batch_size=args.batch_size,
-        num_workers=args.num_workers,
-        model_name=args.model
+        data_dir=tiny_path,
+        batch_size=128,
+        num_workers=4,
+        model_name=model,
+        dataset_type='tiny_imagenet'
     )
     
-    # 실험 실행
     results = experiment.run_comparison_experiment(
-        epochs=args.epochs,
-        lr=args.lr,
-        weight_decay=args.weight_decay
+        epochs=epochs,
+        lr=0.001,
+        weight_decay=1e-4
     )
+    
+    experiment.analyze_results(results)
+    experiment.plot_results(results, f'tiny_imagenet_{model}.png')
+    
+    return results
+
+
+# VSCode에서 바로 실행할 때 간단한 함수
+def quick_test():
+    """빠른 테스트 (3 에포크)"""
+    return run_tiny_imagenet_experiment(epochs=3)
+
+
+def full_experiment():
+    """전체 실험 (20 에포크)"""
+    return run_tiny_imagenet_experiment(epochs=20)
+
+
+def run_cifar10_substitute(config):
+    """ImageNet 대신 CIFAR-10으로 대체 실험"""
+    print("\n" + "="*80)
+    print("CIFAR-10 대체 실험")
+    print("="*80)
+    
+    # CIFAR-10 변환
+    normalize = transforms.Normalize(mean=[0.4914, 0.4822, 0.4465],
+                                   std=[0.2023, 0.1994, 0.2010])
+    
+    train_transform = transforms.Compose([
+        transforms.RandomCrop(32, padding=4),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        normalize,
+    ])
+    
+    test_transform = transforms.Compose([
+        transforms.ToTensor(),
+        normalize,
+    ])
+    
+    # CIFAR-10 데이터셋
+    train_dataset = torchvision.datasets.CIFAR10(
+        root=config['data_dir'], train=True, download=True, transform=train_transform
+    )
+    
+    test_dataset = torchvision.datasets.CIFAR10(
+        root=config['data_dir'], train=False, download=True, transform=test_transform
+    )
+    
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    # 데이터 로더
+    train_loader = DataLoader(
+        train_dataset, batch_size=config['batch_size'], shuffle=True,
+        num_workers=config['num_workers'], pin_memory=torch.cuda.is_available()
+    )
+    
+    test_loader = DataLoader(
+        test_dataset, batch_size=config['batch_size'], shuffle=False,
+        num_workers=config['num_workers'], pin_memory=torch.cuda.is_available()
+    )
+    
+    print(f"CIFAR-10 데이터 로드 완료:")
+    print(f"  훈련 데이터: {len(train_dataset):,}개")
+    print(f"  테스트 데이터: {len(test_dataset):,}개")
+    
+    # 간단한 CIFAR-10 모델
+    class SimpleCNN(nn.Module):
+        def __init__(self):
+            super(SimpleCNN, self).__init__()
+            self.conv1 = nn.Conv2d(3, 32, 3, padding=1)
+            self.conv2 = nn.Conv2d(32, 64, 3, padding=1)
+            self.conv3 = nn.Conv2d(64, 128, 3, padding=1)
+            self.pool = nn.MaxPool2d(2, 2)
+            self.fc1 = nn.Linear(128 * 4 * 4, 256)
+            self.fc2 = nn.Linear(256, 10)
+            self.dropout = nn.Dropout(0.2)
+            
+        def forward(self, x):
+            x = self.pool(F.relu(self.conv1(x)))
+            x = self.pool(F.relu(self.conv2(x)))
+            x = self.pool(F.relu(self.conv3(x)))
+            x = x.view(-1, 128 * 4 * 4)
+            x = F.relu(self.fc1(x))
+            x = self.dropout(x)
+            x = self.fc2(x)
+            return x
+    
+    # 최적화 알고리즘 비교
+    optimizers = {
+        'Custom_Adam': CustomAdam,
+        'Custom_AdamW': CustomAdamW,
+        'Custom_AdamAbs': CustomAdamAbs
+    }
+    
+    results = {}
+    
+    for opt_name, opt_class in optimizers.items():
+        print(f"\n{opt_name} 실험 시작...")
+        
+        # 모델 초기화
+        torch.manual_seed(42)
+        model = SimpleCNN().to(device)
+        
+        # 최적화 알고리즘
+        if opt_name == 'Custom_AdamAbs':
+            optimizer = opt_class(model.parameters(), lr=config['lr']*0.5, 
+                                weight_decay=config['weight_decay'])
+        else:
+            optimizer = opt_class(model.parameters(), lr=config['lr'], 
+                                weight_decay=config['weight_decay'])
+        
+        criterion = nn.CrossEntropyLoss()
+        
+        # 훈련
+        start_time = time.time()
+        
+        for epoch in range(config['epochs']):
+            model.train()
+            running_loss = 0.0
+            correct = 0
+            total = 0
+            
+            batch_times = []
+            
+            for batch_idx, (data, target) in enumerate(train_loader):
+                batch_start = time.time()
+                
+                data, target = data.to(device), target.to(device)
+                
+                optimizer.zero_grad()
+                output = model(data)
+                loss = criterion(output, target)
+                loss.backward()
+                optimizer.step()
+                
+                batch_times.append(time.time() - batch_start)
+                
+                running_loss += loss.item()
+                _, predicted = torch.max(output.data, 1)
+                total += target.size(0)
+                correct += (predicted == target).sum().item()
+                
+                if batch_idx % 100 == 0:
+                    print(f'    Epoch {epoch+1}/{config["epochs"]}, '
+                          f'Batch {batch_idx}/{len(train_loader)}, '
+                          f'Loss: {loss.item():.4f}, '
+                          f'Acc: {100.*correct/total:.2f}%')
+        
+        total_time = time.time() - start_time
+        
+        # 최종 테스트
+        model.eval()
+        test_correct = 0
+        test_total = 0
+        
+        with torch.no_grad():
+            for data, target in test_loader:
+                data, target = data.to(device), target.to(device)
+                output = model(data)
+                _, predicted = torch.max(output.data, 1)
+                test_total += target.size(0)
+                test_correct += (predicted == target).sum().item()
+        
+        test_acc = 100. * test_correct / test_total
+        avg_batch_time = np.mean(batch_times) * 1000
+        
+        results[opt_name] = {
+            'test_accuracy': test_acc,
+            'total_time': total_time,
+            'avg_batch_time': avg_batch_time
+        }
+        
+        print(f"  {opt_name} 완료: 정확도 {test_acc:.2f}%, "
+              f"시간 {total_time:.1f}초, 배치 {avg_batch_time:.1f}ms")
+        
+        del model, optimizer
+        torch.cuda.empty_cache()
     
     # 결과 분석
-    experiment.analyze_results(results)
+    print(f"\n{'='*60}")
+    print("CIFAR-10 대체 실험 결과")
+    print(f"{'='*60}")
+    print(f"{'Optimizer':<15} {'Accuracy':<10} {'Time':<8} {'Batch Time':<12}")
+    print("-" * 50)
     
-    # 시각화
-    save_path = f'imagenet_{args.model}_comparison.png'
-    experiment.plot_results(results, save_path)
+    for opt_name, result in results.items():
+        print(f"{opt_name:<15} {result['test_accuracy']:>7.2f}% "
+              f"{result['total_time']:>6.1f}s "
+              f"{result['avg_batch_time']:>9.1f}ms")
     
-    # 결과 저장
-    experiment.save_results(results)
+    # AdamAbs vs Adam 비교
+    if 'Custom_Adam' in results and 'Custom_AdamAbs' in results:
+        adam_time = results['Custom_Adam']['avg_batch_time']
+        adamabs_time = results['Custom_AdamAbs']['avg_batch_time']
+        speedup = adam_time / adamabs_time
+        
+        print(f"\nAdamAbs 속도 개선: {speedup:.2f}x")
+        print(f"정확도 차이: {results['Custom_AdamAbs']['test_accuracy'] - results['Custom_Adam']['test_accuracy']:+.2f}%")
     
-    print("\n" + "="*100)
-    print("ImageNet 실험 완료!")
-    print("="*100)
+    print("\nCIFAR-10 대체 실험 완료!")
+    return results
 
 
 # 주피터 노트북이나 스크립트에서 직접 실행할 때
