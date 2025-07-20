@@ -1,0 +1,560 @@
+"""
+모델 정의 통합 모듈
+MNIST, CIFAR-10, Tiny ImageNet용 모델들
+
+Author: AI Research  
+Date: 2025
+"""
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from typing import Dict, Any, Optional
+
+
+# =============================================================================
+# MNIST 모델들
+# =============================================================================
+
+class MNISTNet(nn.Module):
+    """MNIST용 CNN 모델"""
+    
+    def __init__(self, dropout_rate: float = 0.25):
+        super(MNISTNet, self).__init__()
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
+        
+        self.pool = nn.MaxPool2d(2, 2)
+        self.dropout1 = nn.Dropout2d(dropout_rate)
+        self.dropout2 = nn.Dropout(dropout_rate)
+        
+        self.fc1 = nn.Linear(128 * 3 * 3, 256)
+        self.fc2 = nn.Linear(256, 128)
+        self.fc3 = nn.Linear(128, 10)
+        
+        self.batch_norm1 = nn.BatchNorm2d(32)
+        self.batch_norm2 = nn.BatchNorm2d(64)
+        self.batch_norm3 = nn.BatchNorm2d(128)
+        
+        self._initialize_weights()
+    
+    def _initialize_weights(self):
+        """가중치 초기화"""
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.constant_(m.bias, 0)
+    
+    def forward(self, x):
+        # 첫 번째 컨볼루션 블록
+        x = self.pool(F.relu(self.batch_norm1(self.conv1(x))))
+        x = self.dropout1(x)
+        
+        # 두 번째 컨볼루션 블록
+        x = self.pool(F.relu(self.batch_norm2(self.conv2(x))))
+        x = self.dropout1(x)
+        
+        # 세 번째 컨볼루션 블록
+        x = self.pool(F.relu(self.batch_norm3(self.conv3(x))))
+        x = self.dropout1(x)
+        
+        # Flatten
+        x = x.view(-1, 128 * 3 * 3)
+        
+        # 완전연결층
+        x = F.relu(self.fc1(x))
+        x = self.dropout2(x)
+        x = F.relu(self.fc2(x))
+        x = self.dropout2(x)
+        x = self.fc3(x)
+        
+        return x
+
+
+class SimpleMNISTNet(nn.Module):
+    """간단한 MNIST 완전연결 모델"""
+    
+    def __init__(self, dropout_rate: float = 0.2):
+        super(SimpleMNISTNet, self).__init__()
+        self.fc1 = nn.Linear(28 * 28, 512)
+        self.fc2 = nn.Linear(512, 256)
+        self.fc3 = nn.Linear(256, 128)
+        self.fc4 = nn.Linear(128, 10)
+        self.dropout = nn.Dropout(dropout_rate)
+        
+        self._initialize_weights()
+    
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.constant_(m.bias, 0)
+    
+    def forward(self, x):
+        x = x.view(-1, 28 * 28)
+        x = F.relu(self.fc1(x))
+        x = self.dropout(x)
+        x = F.relu(self.fc2(x))
+        x = self.dropout(x)
+        x = F.relu(self.fc3(x))
+        x = self.dropout(x)
+        x = self.fc4(x)
+        return x
+
+
+# =============================================================================
+# CIFAR-10 모델들
+# =============================================================================
+
+class ResNetBlock(nn.Module):
+    """ResNet 기본 블록"""
+    
+    def __init__(self, in_channels: int, out_channels: int, stride: int = 1):
+        super(ResNetBlock, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, 
+                              stride=stride, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, 
+                              stride=1, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        
+        self.shortcut = nn.Sequential()
+        if stride != 1 or in_channels != out_channels:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=1, 
+                         stride=stride, bias=False),
+                nn.BatchNorm2d(out_channels)
+            )
+    
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out += self.shortcut(x)
+        out = F.relu(out)
+        return out
+
+
+class CIFAR10ResNet(nn.Module):
+    """CIFAR-10용 ResNet"""
+    
+    def __init__(self, num_classes: int = 10, dropout_rate: float = 0.2):
+        super(CIFAR10ResNet, self).__init__()
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(64)
+        
+        self.layer1 = self._make_layer(64, 64, 2, stride=1)
+        self.layer2 = self._make_layer(64, 128, 2, stride=2)
+        self.layer3 = self._make_layer(128, 256, 2, stride=2)
+        self.layer4 = self._make_layer(256, 512, 2, stride=2)
+        
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(512, num_classes)
+        self.dropout = nn.Dropout(dropout_rate)
+        
+        self._initialize_weights()
+    
+    def _make_layer(self, in_channels: int, out_channels: int, 
+                   num_blocks: int, stride: int):
+        layers = []
+        layers.append(ResNetBlock(in_channels, out_channels, stride))
+        for _ in range(1, num_blocks):
+            layers.append(ResNetBlock(out_channels, out_channels))
+        return nn.Sequential(*layers)
+    
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.constant_(m.bias, 0)
+    
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        out = self.layer4(out)
+        out = self.avgpool(out)
+        out = torch.flatten(out, 1)
+        out = self.dropout(out)
+        out = self.fc(out)
+        return out
+
+
+class SimpleCIFAR10Net(nn.Module):
+    """간단한 CIFAR-10 CNN 모델"""
+    
+    def __init__(self, num_classes: int = 10, dropout_rate: float = 0.2):
+        super(SimpleCIFAR10Net, self).__init__()
+        self.conv1 = nn.Conv2d(3, 32, 3, padding=1)
+        self.conv2 = nn.Conv2d(32, 64, 3, padding=1)
+        self.conv3 = nn.Conv2d(64, 128, 3, padding=1)
+        self.pool = nn.MaxPool2d(2, 2)
+        
+        self.fc1 = nn.Linear(128 * 4 * 4, 256)
+        self.fc2 = nn.Linear(256, num_classes)
+        self.dropout = nn.Dropout(dropout_rate)
+        
+        self._initialize_weights()
+    
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.constant_(m.bias, 0)
+    
+    def forward(self, x):
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = self.pool(F.relu(self.conv3(x)))
+        x = x.view(-1, 128 * 4 * 4)
+        x = F.relu(self.fc1(x))
+        x = self.dropout(x)
+        x = self.fc2(x)
+        return x
+
+
+# =============================================================================
+# Tiny ImageNet 모델들
+# =============================================================================
+
+class TinyImageNetResNet(nn.Module):
+    """Tiny ImageNet용 ResNet (더 깊은 구조)"""
+    
+    def __init__(self, num_classes: int = 200, dropout_rate: float = 0.3):
+        super(TinyImageNetResNet, self).__init__()
+        # 입력이 224x224로 리사이즈되므로 표준 ResNet 구조 사용
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        
+        self.layer1 = self._make_layer(64, 64, 3, stride=1)
+        self.layer2 = self._make_layer(64, 128, 4, stride=2)
+        self.layer3 = self._make_layer(128, 256, 6, stride=2)
+        self.layer4 = self._make_layer(256, 512, 3, stride=2)
+        
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(512, num_classes)
+        self.dropout = nn.Dropout(dropout_rate)
+        
+        self._initialize_weights()
+    
+    def _make_layer(self, in_channels: int, out_channels: int, 
+                   num_blocks: int, stride: int):
+        layers = []
+        layers.append(ResNetBlock(in_channels, out_channels, stride))
+        for _ in range(1, num_blocks):
+            layers.append(ResNetBlock(out_channels, out_channels))
+        return nn.Sequential(*layers)
+    
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.constant_(m.bias, 0)
+    
+    def forward(self, x):
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = self.maxpool(x)
+        
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        x = self.dropout(x)
+        x = self.fc(x)
+        return x
+
+
+class SimpleTinyImageNetNet(nn.Module):
+    """간단한 Tiny ImageNet CNN 모델"""
+    
+    def __init__(self, num_classes: int = 200, dropout_rate: float = 0.3):
+        super(SimpleTinyImageNetNet, self).__init__()
+        # 224x224 입력 가정
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        
+        self.conv2 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm2d(128)
+        self.pool2 = nn.MaxPool2d(2, 2)
+        
+        self.conv3 = nn.Conv2d(128, 256, kernel_size=3, padding=1)
+        self.bn3 = nn.BatchNorm2d(256)
+        self.pool3 = nn.MaxPool2d(2, 2)
+        
+        self.conv4 = nn.Conv2d(256, 512, kernel_size=3, padding=1)
+        self.bn4 = nn.BatchNorm2d(512)
+        self.pool4 = nn.AdaptiveAvgPool2d((1, 1))
+        
+        self.fc1 = nn.Linear(512, 512)
+        self.fc2 = nn.Linear(512, num_classes)
+        self.dropout = nn.Dropout(dropout_rate)
+        
+        self._initialize_weights()
+    
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.constant_(m.bias, 0)
+    
+    def forward(self, x):
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = self.pool1(x)
+        
+        x = F.relu(self.bn2(self.conv2(x)))
+        x = self.pool2(x)
+        
+        x = F.relu(self.bn3(self.conv3(x)))
+        x = self.pool3(x)
+        
+        x = F.relu(self.bn4(self.conv4(x)))
+        x = self.pool4(x)
+        
+        x = torch.flatten(x, 1)
+        x = F.relu(self.fc1(x))
+        x = self.dropout(x)
+        x = self.fc2(x)
+        return x
+
+
+# =============================================================================
+# 모델 팩토리 함수들
+# =============================================================================
+
+def create_model(dataset_type: int, model_type: str = 'default', **kwargs) -> nn.Module:
+    """
+    데이터셋과 모델 타입에 따라 적절한 모델 생성
+    
+    Args:
+        dataset_type: 1(MNIST), 2(CIFAR-10), 3(Tiny ImageNet)
+        model_type: 'default', 'simple', 'resnet' 등
+        **kwargs: 모델별 추가 파라미터
+    
+    Returns:
+        nn.Module: 생성된 모델
+    """
+    dropout_rate = kwargs.get('dropout_rate', 0.2)
+    
+    if dataset_type == 1:  # MNIST
+        if model_type.lower() in ['default', 'cnn']:
+            return MNISTNet(dropout_rate=dropout_rate)
+        elif model_type.lower() == 'simple':
+            return SimpleMNISTNet(dropout_rate=dropout_rate)
+        else:
+            raise ValueError(f"MNIST에서 지원하지 않는 모델 타입: {model_type}")
+    
+    elif dataset_type == 2:  # CIFAR-10
+        if model_type.lower() in ['default', 'resnet']:
+            return CIFAR10ResNet(num_classes=10, dropout_rate=dropout_rate)
+        elif model_type.lower() == 'simple':
+            return SimpleCIFAR10Net(num_classes=10, dropout_rate=dropout_rate)
+        else:
+            raise ValueError(f"CIFAR-10에서 지원하지 않는 모델 타입: {model_type}")
+    
+    elif dataset_type == 3:  # Tiny ImageNet
+        if model_type.lower() in ['default', 'resnet']:
+            return TinyImageNetResNet(num_classes=200, dropout_rate=dropout_rate)
+        elif model_type.lower() == 'simple':
+            return SimpleTinyImageNetNet(num_classes=200, dropout_rate=dropout_rate)
+        else:
+            raise ValueError(f"Tiny ImageNet에서 지원하지 않는 모델 타입: {model_type}")
+    
+    else:
+        raise ValueError(f"지원하지 않는 데이터셋 타입: {dataset_type}")
+
+
+def get_model_info(dataset_type: int) -> Dict[str, Any]:
+    """데이터셋별 사용 가능한 모델 정보 반환"""
+    model_info = {
+        1: {  # MNIST
+            'dataset': 'MNIST',
+            'models': {
+                'default': 'MNISTNet (CNN with BatchNorm)',
+                'cnn': 'MNISTNet (same as default)',
+                'simple': 'SimpleMNISTNet (Fully Connected)'
+            },
+            'num_classes': 10,
+            'input_size': (1, 28, 28)
+        },
+        2: {  # CIFAR-10
+            'dataset': 'CIFAR-10',
+            'models': {
+                'default': 'CIFAR10ResNet (ResNet-like architecture)',
+                'resnet': 'CIFAR10ResNet (same as default)',
+                'simple': 'SimpleCIFAR10Net (Basic CNN)'
+            },
+            'num_classes': 10,
+            'input_size': (3, 32, 32)
+        },
+        3: {  # Tiny ImageNet
+            'dataset': 'Tiny ImageNet',
+            'models': {
+                'default': 'TinyImageNetResNet (Deep ResNet)',
+                'resnet': 'TinyImageNetResNet (same as default)',
+                'simple': 'SimpleTinyImageNetNet (Basic CNN)'
+            },
+            'num_classes': 200,
+            'input_size': (3, 224, 224)  # 리사이즈 후
+        }
+    }
+    
+    if dataset_type not in model_info:
+        raise ValueError(f"지원하지 않는 데이터셋 타입: {dataset_type}")
+    
+    return model_info[dataset_type]
+
+
+def count_parameters(model: nn.Module) -> Dict[str, int]:
+    """모델의 파라미터 개수 계산"""
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    
+    return {
+        'total': total_params,
+        'trainable': trainable_params,
+        'non_trainable': total_params - trainable_params
+    }
+
+
+def print_model_summary(model: nn.Module, dataset_type: int):
+    """모델 요약 정보 출력"""
+    info = get_model_info(dataset_type)
+    params = count_parameters(model)
+    
+    print("=" * 60)
+    print(f"모델 요약: {model.__class__.__name__}")
+    print("=" * 60)
+    print(f"데이터셋: {info['dataset']}")
+    print(f"클래스 수: {info['num_classes']}")
+    print(f"입력 크기: {info['input_size']}")
+    print(f"총 파라미터: {params['total']:,}")
+    print(f"훈련 가능 파라미터: {params['trainable']:,}")
+    print(f"훈련 불가 파라미터: {params['non_trainable']:,}")
+    
+    # 모델 구조 출력 (간단히)
+    print(f"\n모델 구조:")
+    print(model)
+    print("=" * 60)
+
+
+def print_all_models_info():
+    """모든 지원 모델 정보 출력"""
+    print("=" * 80)
+    print("지원하는 모델들")
+    print("=" * 80)
+    
+    for dataset_type in [1, 2, 3]:
+        info = get_model_info(dataset_type)
+        print(f"\n{dataset_type}. {info['dataset']}")
+        print(f"   클래스 수: {info['num_classes']}")
+        print(f"   입력 크기: {info['input_size']}")
+        print("   사용 가능한 모델:")
+        
+        for model_key, model_desc in info['models'].items():
+            print(f"     - {model_key}: {model_desc}")
+    
+    print("\n사용법:")
+    print("   model = create_model(dataset_type=1, model_type='default')")
+    print("   model = create_model(dataset_type=2, model_type='simple')")
+    print("   model = create_model(dataset_type=3, model_type='resnet')")
+    print("=" * 80)
+
+
+if __name__ == "__main__":
+    # 모든 모델 정보 출력
+    print_all_models_info()
+    
+    # 각 데이터셋별로 모델 생성 테스트
+    print("\n모델 생성 테스트")
+    print("=" * 80)
+    
+    test_cases = [
+        (1, 'default'),  # MNIST CNN
+        (1, 'simple'),   # MNIST FC
+        (2, 'default'),  # CIFAR-10 ResNet
+        (2, 'simple'),   # CIFAR-10 Simple
+        (3, 'default'),  # Tiny ImageNet ResNet
+        (3, 'simple'),   # Tiny ImageNet Simple
+    ]
+    
+    for dataset_type, model_type in test_cases:
+        try:
+            print(f"\n데이터셋 {dataset_type}, 모델 '{model_type}' 테스트...")
+            model = create_model(dataset_type, model_type)
+            params = count_parameters(model)
+            
+            print(f"   모델: {model.__class__.__name__}")
+            print(f"   파라미터: {params['total']:,}개")
+            print(f"   ✅ 성공!")
+            
+        except Exception as e:
+            print(f"   ❌ 실패: {e}")
+    
+    # 샘플 입력으로 forward pass 테스트
+    print(f"\nForward pass 테스트")
+    print("-" * 40)
+    
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"디바이스: {device}")
+    
+    for dataset_type in [1, 2, 3]:
+        try:
+            info = get_model_info(dataset_type)
+            model = create_model(dataset_type, 'default').to(device)
+            
+            # 샘플 입력 생성
+            batch_size = 2
+            input_tensor = torch.randn(batch_size, *info['input_size']).to(device)
+            
+            # Forward pass
+            with torch.no_grad():
+                output = model(input_tensor)
+            
+            expected_shape = (batch_size, info['num_classes'])
+            actual_shape = output.shape
+            
+            print(f"데이터셋 {dataset_type}: 입력 {input_tensor.shape} → 출력 {actual_shape}")
+            
+            if actual_shape == expected_shape:
+                print(f"   ✅ 성공! (예상: {expected_shape})")
+            else:
+                print(f"   ❌ 실패! 예상: {expected_shape}, 실제: {actual_shape}")
+                
+        except Exception as e:
+            print(f"데이터셋 {dataset_type}: ❌ 실패 - {e}")
+    
+    print("\n✅ 모델 테스트 완료!")

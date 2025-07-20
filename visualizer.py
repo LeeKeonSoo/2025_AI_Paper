@@ -1,0 +1,730 @@
+"""
+시각화 및 결과 저장 모듈
+실험 결과를 그래프로 시각화하고 results 폴더에 저장
+
+Author: AI Research
+Date: 2025
+"""
+
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import seaborn as sns
+import numpy as np
+import pandas as pd
+import json
+import os
+from datetime import datetime
+from typing import Dict, List, Any, Optional, Tuple
+import warnings
+warnings.filterwarnings('ignore')
+
+# 한글 폰트 설정 (가능한 경우)
+plt.rcParams['font.family'] = ['DejaVu Sans', 'Arial', 'sans-serif']
+plt.rcParams['axes.unicode_minus'] = False
+
+# 시각화 스타일 설정
+plt.style.use('seaborn-v0_8')
+sns.set_palette("husl")
+
+
+class ExperimentVisualizer:
+    """실험 결과 시각화 클래스"""
+    
+    def __init__(self, results_dir: str = './results'):
+        """
+        Args:
+            results_dir: 결과 저장 디렉토리
+        """
+        self.results_dir = results_dir
+        self.colors = {
+            'Adam': '#1f77b4',
+            'AdamW': '#ff7f0e', 
+            'AdamABS': '#2ca02c',
+            'AdamABSW': '#d62728'
+        }
+        
+        # 결과 디렉토리 생성
+        os.makedirs(results_dir, exist_ok=True)
+        
+        print(f"📊 ExperimentVisualizer 초기화")
+        print(f"   결과 저장 경로: {os.path.abspath(results_dir)}")
+    
+    def plot_training_curves(self, experiment_results: Dict[str, Any], 
+                           dataset_name: str, save_name: Optional[str] = None) -> str:
+        """
+        훈련 곡선 시각화
+        
+        Args:
+            experiment_results: 실험 결과 딕셔너리
+            dataset_name: 데이터셋 이름
+            save_name: 저장할 파일명 (없으면 자동 생성)
+        
+        Returns:
+            str: 저장된 파일 경로
+        """
+        fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+        fig.suptitle(f'{dataset_name} Optimizer Comparison - Training Curves', 
+                    fontsize=16, fontweight='bold')
+        
+        # 1. 훈련 손실
+        ax = axes[0, 0]
+        for opt_name, results in experiment_results.items():
+            history = results['training_history']
+            color = self.colors.get(opt_name, 'black')
+            ax.plot(history['train_loss'], label=opt_name, color=color, linewidth=2)
+        
+        ax.set_title('Training Loss', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Epoch')
+        ax.set_ylabel('Loss')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        ax.set_yscale('log')
+        
+        # 2. 검증 손실
+        ax = axes[0, 1]
+        for opt_name, results in experiment_results.items():
+            history = results['training_history']
+            color = self.colors.get(opt_name, 'black')
+            ax.plot(history['val_loss'], label=opt_name, color=color, linewidth=2)
+        
+        ax.set_title('Validation Loss', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Epoch')
+        ax.set_ylabel('Loss')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        ax.set_yscale('log')
+        
+        # 3. 훈련 정확도
+        ax = axes[0, 2]
+        for opt_name, results in experiment_results.items():
+            history = results['training_history']
+            color = self.colors.get(opt_name, 'black')
+            ax.plot(history['train_acc'], label=opt_name, color=color, linewidth=2)
+        
+        ax.set_title('Training Accuracy', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Epoch')
+        ax.set_ylabel('Accuracy (%)')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        # 4. 검증 정확도
+        ax = axes[1, 0]
+        for opt_name, results in experiment_results.items():
+            history = results['training_history']
+            color = self.colors.get(opt_name, 'black')
+            ax.plot(history['val_acc'], label=opt_name, color=color, linewidth=2)
+        
+        ax.set_title('Validation Accuracy', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Epoch')
+        ax.set_ylabel('Accuracy (%)')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        # 5. 학습률 변화
+        ax = axes[1, 1]
+        for opt_name, results in experiment_results.items():
+            history = results['training_history']
+            color = self.colors.get(opt_name, 'black')
+            if 'lr_history' in history and history['lr_history']:
+                ax.plot(history['lr_history'], label=opt_name, color=color, linewidth=2)
+        
+        ax.set_title('Learning Rate Schedule', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Epoch')
+        ax.set_ylabel('Learning Rate')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        ax.set_yscale('log')
+        
+        # 6. 에포크 시간
+        ax = axes[1, 2]
+        for opt_name, results in experiment_results.items():
+            history = results['training_history']
+            color = self.colors.get(opt_name, 'black')
+            if 'epoch_times' in history:
+                ax.plot(history['epoch_times'], label=opt_name, color=color, linewidth=2)
+        
+        ax.set_title('Epoch Training Time', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Epoch')
+        ax.set_ylabel('Time (seconds)')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        
+        # 파일 저장
+        if save_name is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_name = f'{dataset_name.lower()}_training_curves_{timestamp}.png'
+        
+        save_path = os.path.join(self.results_dir, save_name)
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.show()
+        
+        print(f"📈 훈련 곡선 저장: {save_path}")
+        return save_path
+    
+    def plot_performance_comparison(self, experiment_results: Dict[str, Any],
+                                  dataset_name: str, save_name: Optional[str] = None) -> str:
+        """
+        성능 비교 차트
+        
+        Args:
+            experiment_results: 실험 결과 딕셔너리
+            dataset_name: 데이터셋 이름  
+            save_name: 저장할 파일명
+        
+        Returns:
+            str: 저장된 파일 경로
+        """
+        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+        fig.suptitle(f'{dataset_name} Optimizer Performance Comparison', 
+                    fontsize=16, fontweight='bold')
+        
+        opt_names = list(experiment_results.keys())
+        colors_list = [self.colors.get(name, 'gray') for name in opt_names]
+        
+        # 1. 최고 검증 정확도
+        ax = axes[0, 0]
+        val_accs = [experiment_results[name]['best_val_acc'] for name in opt_names]
+        
+        bars = ax.bar(opt_names, val_accs, color=colors_list, alpha=0.8)
+        ax.set_title('Best Validation Accuracy', fontsize=14, fontweight='bold')
+        ax.set_ylabel('Accuracy (%)')
+        ax.set_ylim(max(0, min(val_accs) - 5), min(100, max(val_accs) + 5))
+        
+        # 막대 위에 값 표시
+        for bar, acc in zip(bars, val_accs):
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5,
+                   f'{acc:.2f}%', ha='center', va='bottom', fontweight='bold')
+        
+        plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+        
+        # 2. 최종 테스트 정확도 (있는 경우)
+        ax = axes[0, 1]
+        test_accs = []
+        for name in opt_names:
+            if 'test_results' in experiment_results[name]:
+                test_accs.append(experiment_results[name]['test_results']['accuracy'])
+            else:
+                test_accs.append(experiment_results[name]['final_val_acc'])
+        
+        bars = ax.bar(opt_names, test_accs, color=colors_list, alpha=0.8)
+        ax.set_title('Final Test Accuracy', fontsize=14, fontweight='bold')
+        ax.set_ylabel('Accuracy (%)')
+        ax.set_ylim(max(0, min(test_accs) - 5), min(100, max(test_accs) + 5))
+        
+        for bar, acc in zip(bars, test_accs):
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5,
+                   f'{acc:.2f}%', ha='center', va='bottom', fontweight='bold')
+        
+        plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+        
+        # 3. 총 훈련 시간
+        ax = axes[1, 0]
+        train_times = [experiment_results[name]['total_training_time'] for name in opt_names]
+        
+        bars = ax.bar(opt_names, train_times, color=colors_list, alpha=0.8)
+        ax.set_title('Total Training Time', fontsize=14, fontweight='bold')
+        ax.set_ylabel('Time (seconds)')
+        
+        for bar, time_val in zip(bars, train_times):
+            # 시분초 형식으로 표시
+            if time_val >= 3600:  # 1시간 이상
+                time_str = f'{int(time_val//3600)}h{int((time_val%3600)//60)}m'
+            elif time_val >= 60:  # 1분 이상
+                time_str = f'{int(time_val//60)}m{int(time_val%60)}s'
+            else:
+                time_str = f'{time_val:.1f}s'
+            
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(train_times)*0.01,
+                   time_str, ha='center', va='bottom', fontweight='bold')
+        
+        plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+        
+        # 4. 평균 에포크 시간
+        ax = axes[1, 1]
+        epoch_times = [experiment_results[name]['avg_epoch_time'] for name in opt_names]
+        
+        bars = ax.bar(opt_names, epoch_times, color=colors_list, alpha=0.8)
+        ax.set_title('Average Epoch Time', fontsize=14, fontweight='bold')
+        ax.set_ylabel('Time (seconds)')
+        
+        for bar, time_val in zip(bars, epoch_times):
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(epoch_times)*0.01,
+                   f'{time_val:.1f}s', ha='center', va='bottom', fontweight='bold')
+        
+        plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+        
+        plt.tight_layout()
+        
+        # 파일 저장
+        if save_name is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_name = f'{dataset_name.lower()}_performance_comparison_{timestamp}.png'
+        
+        save_path = os.path.join(self.results_dir, save_name)
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.show()
+        
+        print(f"📊 성능 비교 차트 저장: {save_path}")
+        return save_path
+    
+    def plot_optimizer_analysis(self, experiment_results: Dict[str, Any],
+                              dataset_name: str, save_name: Optional[str] = None) -> str:
+        """
+        옵티마이저 분석 차트 (수렴성, 안정성 등)
+        
+        Args:
+            experiment_results: 실험 결과 딕셔너리
+            dataset_name: 데이터셋 이름
+            save_name: 저장할 파일명
+        
+        Returns:
+            str: 저장된 파일 경로
+        """
+        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+        fig.suptitle(f'{dataset_name} Optimizer Analysis', 
+                    fontsize=16, fontweight='bold')
+        
+        opt_names = list(experiment_results.keys())
+        colors_list = [self.colors.get(name, 'gray') for name in opt_names]
+        
+        # 1. 수렴 분석 (최고 성능 달성 에포크)
+        ax = axes[0, 0]
+        convergence_epochs = []
+        for name in opt_names:
+            val_acc_history = experiment_results[name]['training_history']['val_acc']
+            best_epoch = np.argmax(val_acc_history) + 1
+            convergence_epochs.append(best_epoch)
+        
+        bars = ax.bar(opt_names, convergence_epochs, color=colors_list, alpha=0.8)
+        ax.set_title('Best Performance Epoch', fontsize=14, fontweight='bold')
+        ax.set_ylabel('Epoch')
+        
+        for bar, epoch in zip(bars, convergence_epochs):
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5,
+                   f'{epoch}', ha='center', va='bottom', fontweight='bold')
+        
+        plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+        
+        # 2. 안정성 분석 (마지막 10 에포크 검증 정확도 표준편차)
+        ax = axes[0, 1]
+        stability_scores = []
+        for name in opt_names:
+            val_acc_history = experiment_results[name]['training_history']['val_acc']
+            if len(val_acc_history) >= 10:
+                stability = np.std(val_acc_history[-10:])
+            else:
+                stability = np.std(val_acc_history)
+            stability_scores.append(stability)
+        
+        bars = ax.bar(opt_names, stability_scores, color=colors_list, alpha=0.8)
+        ax.set_title('Training Stability (Last 10 Epochs Std)', fontsize=14, fontweight='bold')
+        ax.set_ylabel('Standard Deviation (%)')
+        
+        for bar, std in zip(bars, stability_scores):
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(stability_scores)*0.01,
+                   f'{std:.3f}', ha='center', va='bottom', fontweight='bold')
+        
+        plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+        
+        # 3. 효율성 분석 (성능 대비 시간)
+        ax = axes[1, 0]
+        efficiency_scores = []
+        for name in opt_names:
+            best_acc = experiment_results[name]['best_val_acc']
+            total_time = experiment_results[name]['total_training_time']
+            efficiency = best_acc / (total_time / 60)  # 분당 정확도
+            efficiency_scores.append(efficiency)
+        
+        bars = ax.bar(opt_names, efficiency_scores, color=colors_list, alpha=0.8)
+        ax.set_title('Efficiency (Accuracy per Minute)', fontsize=14, fontweight='bold')
+        ax.set_ylabel('Accuracy % / Minute')
+        
+        for bar, eff in zip(bars, efficiency_scores):
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(efficiency_scores)*0.01,
+                   f'{eff:.2f}', ha='center', va='bottom', fontweight='bold')
+        
+        plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+        
+        # 4. 학습 진행도 (에포크별 개선도)
+        ax = axes[1, 1]
+        for opt_name, results in experiment_results.items():
+            history = results['training_history']
+            val_acc = history['val_acc']
+            if len(val_acc) > 1:
+                # 이동평균을 통한 부드러운 곡선
+                window_size = max(1, len(val_acc) // 10)
+                smoothed_acc = pd.Series(val_acc).rolling(window=window_size, center=True).mean()
+                color = self.colors.get(opt_name, 'black')
+                ax.plot(smoothed_acc, label=f'{opt_name} (smoothed)', 
+                       color=color, linewidth=2, alpha=0.8)
+        
+        ax.set_title('Learning Progress (Smoothed)', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Epoch')
+        ax.set_ylabel('Validation Accuracy (%)')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        
+        # 파일 저장
+        if save_name is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_name = f'{dataset_name.lower()}_optimizer_analysis_{timestamp}.png'
+        
+        save_path = os.path.join(self.results_dir, save_name)
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.show()
+        
+        print(f"🔍 옵티마이저 분석 저장: {save_path}")
+        return save_path
+    
+    def create_summary_report(self, experiment_results: Dict[str, Any],
+                            dataset_name: str, save_name: Optional[str] = None) -> str:
+        """
+        종합 요약 보고서 생성
+        
+        Args:
+            experiment_results: 실험 결과 딕셔너리
+            dataset_name: 데이터셋 이름
+            save_name: 저장할 파일명
+        
+        Returns:
+            str: 저장된 파일 경로
+        """
+        fig = plt.figure(figsize=(20, 16))
+        
+        # 전체 제목
+        fig.suptitle(f'{dataset_name} Optimizer Comparison - Comprehensive Report', 
+                    fontsize=20, fontweight='bold', y=0.98)
+        
+        # 그리드 레이아웃 설정 (4x4)
+        gs = fig.add_gridspec(4, 4, hspace=0.3, wspace=0.3)
+        
+        opt_names = list(experiment_results.keys())
+        colors_list = [self.colors.get(name, 'gray') for name in opt_names]
+        
+        # 1. 훈련/검증 정확도 (상위 좌측 2x2)
+        ax1 = fig.add_subplot(gs[0:2, 0:2])
+        for opt_name, results in experiment_results.items():
+            history = results['training_history']
+            color = self.colors.get(opt_name, 'black')
+            ax1.plot(history['train_acc'], '--', color=color, alpha=0.7, linewidth=1.5, label=f'{opt_name} Train')
+            ax1.plot(history['val_acc'], '-', color=color, linewidth=2, label=f'{opt_name} Val')
+        
+        ax1.set_title('Training vs Validation Accuracy', fontsize=14, fontweight='bold')
+        ax1.set_xlabel('Epoch')
+        ax1.set_ylabel('Accuracy (%)')
+        ax1.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        ax1.grid(True, alpha=0.3)
+        
+        # 2. 손실 곡선 (상위 우측 2x2)  
+        ax2 = fig.add_subplot(gs[0:2, 2:4])
+        for opt_name, results in experiment_results.items():
+            history = results['training_history']
+            color = self.colors.get(opt_name, 'black')
+            ax2.plot(history['train_loss'], '--', color=color, alpha=0.7, linewidth=1.5, label=f'{opt_name} Train')
+            ax2.plot(history['val_loss'], '-', color=color, linewidth=2, label=f'{opt_name} Val')
+        
+        ax2.set_title('Training vs Validation Loss', fontsize=14, fontweight='bold')
+        ax2.set_xlabel('Epoch')
+        ax2.set_ylabel('Loss')
+        ax2.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        ax2.set_yscale('log')
+        ax2.grid(True, alpha=0.3)
+        
+        # 3. 최종 성능 비교
+        ax3 = fig.add_subplot(gs[2, 0])
+        val_accs = [experiment_results[name]['best_val_acc'] for name in opt_names]
+        bars = ax3.bar(opt_names, val_accs, color=colors_list, alpha=0.8)
+        ax3.set_title('Best Validation Accuracy', fontsize=12, fontweight='bold')
+        ax3.set_ylabel('Accuracy (%)')
+        for bar, acc in zip(bars, val_accs):
+            ax3.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.3,
+                    f'{acc:.1f}%', ha='center', va='bottom', fontsize=10, fontweight='bold')
+        plt.setp(ax3.get_xticklabels(), rotation=45, ha='right')
+        
+        # 4. 훈련 시간 비교
+        ax4 = fig.add_subplot(gs[2, 1])
+        train_times = [experiment_results[name]['total_training_time'] for name in opt_names]
+        bars = ax4.bar(opt_names, train_times, color=colors_list, alpha=0.8)
+        ax4.set_title('Training Time', fontsize=12, fontweight='bold')
+        ax4.set_ylabel('Time (s)')
+        for bar, time_val in zip(bars, train_times):
+            ax4.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(train_times)*0.01,
+                    f'{time_val:.0f}s', ha='center', va='bottom', fontsize=10, fontweight='bold')
+        plt.setp(ax4.get_xticklabels(), rotation=45, ha='right')
+        
+        # 5. 수렴 속도
+        ax5 = fig.add_subplot(gs[2, 2])
+        convergence_epochs = []
+        for name in opt_names:
+            val_acc_history = experiment_results[name]['training_history']['val_acc']
+            best_epoch = np.argmax(val_acc_history) + 1
+            convergence_epochs.append(best_epoch)
+        
+        bars = ax5.bar(opt_names, convergence_epochs, color=colors_list, alpha=0.8)
+        ax5.set_title('Convergence Speed', fontsize=12, fontweight='bold')
+        ax5.set_ylabel('Best Epoch')
+        for bar, epoch in zip(bars, convergence_epochs):
+            ax5.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.3,
+                    f'{epoch}', ha='center', va='bottom', fontsize=10, fontweight='bold')
+        plt.setp(ax5.get_xticklabels(), rotation=45, ha='right')
+        
+        # 6. 안정성 점수
+        ax6 = fig.add_subplot(gs[2, 3])
+        stability_scores = []
+        for name in opt_names:
+            val_acc_history = experiment_results[name]['training_history']['val_acc']
+            if len(val_acc_history) >= 10:
+                stability = np.std(val_acc_history[-10:])
+            else:
+                stability = np.std(val_acc_history)
+            stability_scores.append(stability)
+        
+        bars = ax6.bar(opt_names, stability_scores, color=colors_list, alpha=0.8)
+        ax6.set_title('Stability Score', fontsize=12, fontweight='bold')
+        ax6.set_ylabel('Std Dev (%)')
+        for bar, std in zip(bars, stability_scores):
+            ax6.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(stability_scores)*0.01,
+                    f'{std:.2f}', ha='center', va='bottom', fontsize=10, fontweight='bold')
+        plt.setp(ax6.get_xticklabels(), rotation=45, ha='right')
+        
+        # 7. 요약 테이블 (하단)
+        ax7 = fig.add_subplot(gs[3, :])
+        ax7.axis('off')
+        
+        # 요약 데이터 준비
+        summary_data = []
+        for opt_name in opt_names:
+            results = experiment_results[opt_name]
+            test_acc = results.get('test_results', {}).get('accuracy', results['final_val_acc'])
+            
+            summary_data.append([
+                opt_name,
+                f"{results['best_val_acc']:.2f}%",
+                f"{test_acc:.2f}%", 
+                f"{results['total_training_time']:.1f}s",
+                f"{results['avg_epoch_time']:.1f}s",
+                f"{convergence_epochs[opt_names.index(opt_name)]}",
+                f"{stability_scores[opt_names.index(opt_name)]:.3f}"
+            ])
+        
+        # 테이블 생성
+        table = ax7.table(cellText=summary_data,
+                         colLabels=['Optimizer', 'Best Val Acc', 'Test Acc', 'Total Time', 
+                                   'Avg Epoch Time', 'Best Epoch', 'Stability'],
+                         cellLoc='center',
+                         loc='center',
+                         bbox=[0, 0, 1, 1])
+        
+        table.auto_set_font_size(False)
+        table.set_fontsize(12)
+        table.scale(1, 2)
+        
+        # 테이블 스타일링
+        for i in range(len(opt_names) + 1):
+            for j in range(7):
+                cell = table[(i, j)]
+                if i == 0:  # 헤더
+                    cell.set_facecolor('#40466e')
+                    cell.set_text_props(weight='bold', color='white')
+                else:  # 데이터 행
+                    cell.set_facecolor('#f1f1f2')
+                    if j == 0:  # 옵티마이저 이름
+                        cell.set_facecolor(colors_list[i-1])
+                        cell.set_text_props(weight='bold', color='white')
+        
+        ax7.set_title('Summary Table', fontsize=14, fontweight='bold', pad=20)
+        
+        # 파일 저장
+        if save_name is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_name = f'{dataset_name.lower()}_comprehensive_report_{timestamp}.png'
+        
+        save_path = os.path.join(self.results_dir, save_name)
+        plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
+        plt.show()
+        
+        print(f"📋 종합 보고서 저장: {save_path}")
+        return save_path
+    
+    def save_results_json(self, experiment_results: Dict[str, Any], 
+                         dataset_name: str, save_name: Optional[str] = None) -> str:
+        """
+        실험 결과를 JSON 파일로 저장
+        
+        Args:
+            experiment_results: 실험 결과 딕셔너리
+            dataset_name: 데이터셋 이름
+            save_name: 저장할 파일명
+        
+        Returns:
+            str: 저장된 파일 경로
+        """
+        # JSON 직렬화 가능한 형태로 변환
+        serializable_results = {}
+        
+        for opt_name, results in experiment_results.items():
+            serializable_results[opt_name] = {
+                'optimizer_name': opt_name,
+                'best_val_acc': results['best_val_acc'],
+                'final_train_acc': results['final_train_acc'],
+                'final_val_acc': results['final_val_acc'],
+                'total_training_time': results['total_training_time'],
+                'avg_epoch_time': results['avg_epoch_time'],
+                'total_epochs_trained': results['total_epochs_trained'],
+                'optimizer_config': results.get('optimizer_config', {}),
+                'dataset': dataset_name,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            # 테스트 결과 추가 (있는 경우)
+            if 'test_results' in results:
+                serializable_results[opt_name]['test_accuracy'] = results['test_results']['accuracy']
+                serializable_results[opt_name]['test_loss'] = results['test_results']['loss']
+            
+            # 수렴 분석
+            val_acc_history = results['training_history']['val_acc']
+            if val_acc_history:
+                best_epoch = np.argmax(val_acc_history) + 1
+                final_stability = np.std(val_acc_history[-min(10, len(val_acc_history)):])
+                
+                serializable_results[opt_name]['convergence_epoch'] = int(best_epoch)
+                serializable_results[opt_name]['final_stability'] = float(final_stability)
+        
+        # 실험 메타데이터 추가
+        metadata = {
+            'experiment_info': {
+                'dataset': dataset_name,
+                'total_optimizers': len(experiment_results),
+                'optimizers_tested': list(experiment_results.keys()),
+                'experiment_date': datetime.now().isoformat(),
+                'best_optimizer': max(experiment_results.keys(), 
+                                    key=lambda x: experiment_results[x]['best_val_acc']),
+                'best_accuracy': max(results['best_val_acc'] for results in experiment_results.values())
+            }
+        }
+        
+        final_data = {
+            'metadata': metadata,
+            'results': serializable_results
+        }
+        
+        # 파일 저장
+        if save_name is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_name = f'{dataset_name.lower()}_experiment_results_{timestamp}.json'
+        
+        save_path = os.path.join(self.results_dir, save_name)
+        
+        with open(save_path, 'w', encoding='utf-8') as f:
+            json.dump(final_data, f, indent=2, ensure_ascii=False)
+        
+        print(f"💾 실험 결과 JSON 저장: {save_path}")
+        return save_path
+    
+    def generate_all_visualizations(self, experiment_results: Dict[str, Any], 
+                                  dataset_name: str) -> Dict[str, str]:
+        """
+        모든 시각화 생성 및 저장
+        
+        Args:
+            experiment_results: 실험 결과 딕셔너리
+            dataset_name: 데이터셋 이름
+        
+        Returns:
+            Dict[str, str]: 생성된 파일들의 경로
+        """
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base_name = f"{dataset_name.lower()}_{timestamp}"
+        
+        print(f"\n📊 {dataset_name} 실험 결과 시각화 생성 중...")
+        print("="*60)
+        
+        saved_files = {}
+        
+        # 1. 훈련 곡선
+        saved_files['training_curves'] = self.plot_training_curves(
+            experiment_results, dataset_name, f"{base_name}_training_curves.png"
+        )
+        
+        # 2. 성능 비교
+        saved_files['performance_comparison'] = self.plot_performance_comparison(
+            experiment_results, dataset_name, f"{base_name}_performance.png"
+        )
+        
+        # 3. 옵티마이저 분석
+        saved_files['optimizer_analysis'] = self.plot_optimizer_analysis(
+            experiment_results, dataset_name, f"{base_name}_analysis.png"
+        )
+        
+        # 4. 종합 보고서
+        saved_files['comprehensive_report'] = self.create_summary_report(
+            experiment_results, dataset_name, f"{base_name}_report.png"
+        )
+        
+        # 5. JSON 결과
+        saved_files['json_results'] = self.save_results_json(
+            experiment_results, dataset_name, f"{base_name}_results.json"
+        )
+        
+        print("="*60)
+        print(f"✅ 모든 시각화 완료! 총 {len(saved_files)}개 파일 생성")
+        print(f"📂 저장 경로: {os.path.abspath(self.results_dir)}")
+        
+        return saved_files
+
+
+if __name__ == "__main__":
+    # 간단한 테스트
+    print("ExperimentVisualizer 테스트")
+    print("="*60)
+    
+    # 더미 실험 결과 생성
+    dummy_results = {
+        'Adam': {
+            'best_val_acc': 95.2,
+            'final_train_acc': 96.8,
+            'final_val_acc': 95.0,
+            'total_training_time': 120.5,
+            'avg_epoch_time': 12.05,
+            'total_epochs_trained': 10,
+            'training_history': {
+                'train_loss': [0.5, 0.3, 0.2, 0.15, 0.12, 0.1, 0.08, 0.07, 0.06, 0.05],
+                'train_acc': [85, 88, 90, 92, 94, 95, 96, 96.5, 96.8, 96.8],
+                'val_loss': [0.6, 0.4, 0.25, 0.18, 0.15, 0.13, 0.12, 0.11, 0.11, 0.12],
+                'val_acc': [82, 86, 89, 91, 93, 94, 95, 95.2, 95.0, 95.0],
+                'lr_history': [0.001] * 10,
+                'epoch_times': [12] * 10
+            }
+        },
+        'AdamABS': {
+            'best_val_acc': 95.8,
+            'final_train_acc': 97.2,
+            'final_val_acc': 95.5,
+            'total_training_time': 115.2,
+            'avg_epoch_time': 11.52,
+            'total_epochs_trained': 10,
+            'training_history': {
+                'train_loss': [0.45, 0.28, 0.18, 0.14, 0.11, 0.09, 0.07, 0.06, 0.055, 0.05],
+                'train_acc': [86, 89, 91, 93, 95, 96, 96.8, 97, 97.2, 97.2],
+                'val_loss': [0.55, 0.38, 0.23, 0.17, 0.14, 0.12, 0.11, 0.105, 0.11, 0.115],
+                'val_acc': [84, 87, 90, 92, 94, 95.2, 95.8, 95.6, 95.5, 95.5],
+                'lr_history': [0.001] * 10,
+                'epoch_times': [11.5] * 10
+            }
+        }
+    }
+    
+    # Visualizer 테스트
+    visualizer = ExperimentVisualizer('./test_results')
+    
+    print("\n더미 데이터로 시각화 테스트...")
+    saved_files = visualizer.generate_all_visualizations(dummy_results, "Test_Dataset")
+    
+    print(f"\n✅ 테스트 완료!")
+    print(f"생성된 파일들:")
+    for file_type, file_path in saved_files.items():
+        print(f"  {file_type}: {file_path}")
