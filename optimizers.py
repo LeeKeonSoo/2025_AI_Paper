@@ -261,88 +261,13 @@ class CustomAdamABS(torch.optim.Optimizer):
         return loss
 
 
-class CustomAdamABSW(torch.optim.Optimizer):
-    """
-    AdamABSW 최적화 알고리즘 (AdamABS + AdamW style decoupled weight decay)
-    """
-    
-    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0):
-        if not 0.0 <= lr:
-            raise ValueError(f"Invalid learning rate: {lr}")
-        if not 0.0 <= eps:
-            raise ValueError(f"Invalid epsilon value: {eps}")
-        if not 0.0 <= betas[0] < 1.0:
-            raise ValueError(f"Invalid beta parameter at index 0: {betas[0]}")
-        if not 0.0 <= betas[1] < 1.0:
-            raise ValueError(f"Invalid beta parameter at index 1: {betas[1]}")
-        if not 0.0 <= weight_decay:
-            raise ValueError(f"Invalid weight_decay value: {weight_decay}")
-            
-        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
-        super(CustomAdamABSW, self).__init__(params, defaults)
-    
-    def step(self, closure=None):
-        """AdamABSW 최적화 스텝 수행"""
-        loss = None
-        if closure is not None:
-            loss = closure()
-        
-        for group in self.param_groups:
-            for p in group['params']:
-                if p.grad is None:
-                    continue
-                
-                grad = p.grad.data
-                if grad.dtype in {torch.float16, torch.bfloat16}:
-                    grad = grad.float()
-                
-                state = self.state[p]
-                
-                # State 초기화
-                if len(state) == 0:
-                    state['step'] = 0
-                    state['exp_avg'] = torch.zeros_like(p.data).float()
-                    state['exp_avg_sq'] = torch.zeros_like(p.data).float()
-                
-                exp_avg, exp_avg_sq = state['exp_avg'], state['exp_avg_sq']
-                beta1, beta2 = group['betas']
-                
-                state['step'] += 1
-                
-                # 1차 모멘텀 업데이트
-                exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
-                
-                # 2차 모멘텀 업데이트 (절댓값 사용)
-                exp_avg_sq.mul_(beta2).add_(grad.abs(), alpha=1 - beta2)
-                
-                # Bias correction
-                bias_correction1 = 1 - beta1 ** state['step']
-                bias_correction2 = 1 - beta2 ** state['step']
-                
-                bias_corrected_exp_avg = exp_avg / bias_correction1
-                bias_corrected_exp_avg_sq = exp_avg_sq / bias_correction2
-                
-                # 분모 계산 (제곱근 없음)
-                denominator = bias_corrected_exp_avg_sq.add_(group['eps'])
-                
-                # Gradient 업데이트
-                gradient_update = bias_corrected_exp_avg / denominator
-                
-                # AdamW 스타일 decoupled weight decay
-                p.data.add_(gradient_update, alpha=-group['lr'])
-                if group['weight_decay'] != 0:
-                    p.data.add_(p.data, alpha=-group['weight_decay'] * group['lr'])
-        
-        return loss
-
-
 def create_optimizer(optimizer_name: str, params, lr: float = 1e-3, 
                     weight_decay: float = 0, **kwargs) -> torch.optim.Optimizer:
     """
     최적화 알고리즘 팩토리 함수
     
     Args:
-        optimizer_name: 최적화 알고리즘 이름 ('adam', 'adamw', 'adamabs', 'adamabsw')
+        optimizer_name: 최적화 알고리즘 이름 ('adam', 'adamw', 'adamabs')
         params: 모델 파라미터
         lr: 학습률
         weight_decay: 가중치 감소
@@ -363,10 +288,8 @@ def create_optimizer(optimizer_name: str, params, lr: float = 1e-3,
         return CustomAdamW(params, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
     elif optimizer_name == 'adamabs':
         return CustomAdamABS(params, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
-    elif optimizer_name == 'adamabsw':
-        return CustomAdamABSW(params, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
     else:
-        raise ValueError(f"Unknown optimizer: {optimizer_name}. Supported: 'adam', 'adamw', 'adamabs', 'adamabsw'")
+        raise ValueError(f"Unknown optimizer: {optimizer_name}. Supported: 'adam', 'adamw', 'adamabs'")
 
 
 def get_optimizer_info():
@@ -390,12 +313,6 @@ def get_optimizer_info():
             'features': ['1차 모멘텀', '절댓값 기반 2차 모멘텀', '제곱근 연산 제거'],
             'formula': 'θ_t = θ_{t-1} - α * m̂_t / (v̂_t + ε), v_t = β₂ * v_{t-1} + (1 - β₂) * |g_t|'
         },
-        'adamabsw': {
-            'name': 'Custom AdamABSW',
-            'description': 'AdamABSW (AdamABS + AdamW 스타일 가중치 감소)',
-            'features': ['절댓값 기반 2차 모멘텀', '제곱근 연산 제거', '분리된 가중치 감소'],
-            'formula': 'AdamABS + decoupled weight decay'
-        }
     }
     return info
 
@@ -421,9 +338,6 @@ def compare_optimizers_theory():
     print("   - 업데이트: θ_t = θ_{t-1} - α * m̂_t / (v̂_t + ε) ← 제곱근 제거")
     print("   - 특징: 계산 효율성, 이상치 강건성")
     
-    print("\n4. AdamABSW:")
-    print("   - AdamABS + AdamW 스타일 가중치 감소")
-    print("   - 특징: AdamABS의 장점 + 개선된 정규화")
     
     print("\n5. 주요 혁신점 (AdamABS):")
     print("   ✓ 절댓값 사용: 이상치(outlier)에 덜 민감")
@@ -519,7 +433,7 @@ if __name__ == "__main__":
     )
     
     # 모든 옵티마이저 테스트
-    optimizer_names = ['adam', 'adamw', 'adamabs', 'adamabsw']
+    optimizer_names = ['adam', 'adamw', 'adamabs']
     
     for opt_name in optimizer_names:
         try:
