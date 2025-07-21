@@ -162,7 +162,6 @@ results/
 | **Adam** | 표준 Adam 직접 구현 | 기준선 (baseline) |
 | **AdamW** | 분리된 가중치 감소 | 정규화 개선 |
 | **AdamABS** | 절댓값 + 제곱근 제거 | 🆕 새로운 아이디어 |
-| **AdamABSW** | AdamABS + AdamW 스타일 | 🆕 하이브리드 |
 
 ## 🎮 사용 예시
 

@@ -21,7 +21,7 @@ from datetime import datetime
 import os
 
 # 우리가 만든 모듈들 import
-from optimizers import create_optimizer, CustomAdam, CustomAdamW, CustomAdamABS, CustomAdamABSW
+from optimizers import create_optimizer, CustomAdam, CustomAdamW, CustomAdamABS
 from data_loaders import get_dataset_loader, print_dataset_info
 from models import create_model, print_model_summary, get_model_info
 from trainer import OptimizerExperiment, create_standard_scheduler
@@ -118,15 +118,6 @@ def create_optimizers_config(base_lr: float, weight_decay: float) -> dict:
                 'weight_decay': weight_decay
             }
         },
-        'AdamABSW': {
-            'optimizer_class': CustomAdamABSW,
-            'params': {
-                'lr': base_lr * 0.8,
-                'betas': (0.9, 0.999),
-                'eps': 1e-8,
-                'weight_decay': weight_decay
-            }
-        }
     }
 
 
@@ -403,7 +394,7 @@ def main():
     parser.add_argument('--model', type=str, choices=['default', 'simple', 'resnet'],
                        help='모델 타입')
     parser.add_argument('--optimizers', nargs='+', 
-                       choices=['Adam', 'AdamW', 'AdamABS', 'AdamABSW'],
+                       choices=['Adam', 'AdamW', 'AdamABS'],
                        help='테스트할 옵티마이저 (기본: 모두)')
     parser.add_argument('--quick', action='store_true',
                        help='빠른 테스트 모드 (3 에포크)')

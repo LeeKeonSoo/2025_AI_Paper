@@ -39,8 +39,7 @@ class ExperimentVisualizer:
         self.colors = {
             'Adam': '#1f77b4',
             'AdamW': '#ff7f0e', 
-            'AdamABS': '#2ca02c',
-            'AdamABSW': '#d62728'
+            'AdamABS': '#2ca02c'
         }
         
         # 결과 디렉토리 생성
