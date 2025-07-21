@@ -13,21 +13,28 @@ import time
 import numpy as np
 from typing import Dict, List, Tuple, Any, Optional
 from torch.utils.data import DataLoader
+from weight_manager import WeightManager, ContinuousTrainer
 
 
 class Trainer:
     """통합 훈련 클래스"""
     
     def __init__(self, model: nn.Module, device: str = 'auto', 
-                 print_every_n_batches: int = 100):
+                 print_every_n_batches: int = 100, 
+                 weight_manager: Optional[WeightManager] = None,
+                 auto_save_epochs: int = 5):
         """
         Args:
             model: 훈련할 모델
             device: 사용할 디바이스 ('auto', 'cuda', 'cpu')
             print_every_n_batches: 배치마다 출력할 간격
+            weight_manager: WeightManager 인스턴스 (자동 저장용)
+            auto_save_epochs: 몇 에포크마다 자동 저장할지
         """
         self.model = model
         self.print_every_n_batches = print_every_n_batches
+        self.weight_manager = weight_manager
+        self.auto_save_epochs = auto_save_epochs
         
         # 디바이스 설정
         if device == 'auto':
@@ -49,10 +56,17 @@ class Trainer:
             'lr_history': []
         }
         
+        # 메타데이터 (체크포인트 저장용)
+        self.model_name = None
+        self.dataset_name = None
+        self.optimizer_name = None
+        
         print(f"✅ Trainer 초기화 완료")
         print(f"   디바이스: {self.device}")
         print(f"   모델: {self.model.__class__.__name__}")
         print(f"   파라미터 수: {self._count_parameters():,}")
+        if self.weight_manager:
+            print(f"   자동 저장: {self.auto_save_epochs} 에포크마다")
     
     def _count_parameters(self) -> int:
         """모델 파라미터 수 계산"""
@@ -196,11 +210,18 @@ class Trainer:
         
         return results
     
+    def set_metadata(self, model_name: str, dataset_name: str, optimizer_name: str):
+        """체크포인트 저장을 위한 메타데이터 설정"""
+        self.model_name = model_name
+        self.dataset_name = dataset_name
+        self.optimizer_name = optimizer_name
+    
     def train_model(self, train_loader: DataLoader, val_loader: DataLoader,
                    test_loader: Optional[DataLoader], optimizer: torch.optim.Optimizer,
                    criterion: nn.Module, epochs: int,
                    scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
-                   early_stopping_patience: int = None) -> Dict[str, Any]:
+                   early_stopping_patience: int = None,
+                   start_epoch: int = 0) -> Dict[str, Any]:
         """
         전체 모델 훈련
         
@@ -213,6 +234,7 @@ class Trainer:
             epochs: 훈련 에포크 수
             scheduler: 학습률 스케줄러 (Optional)
             early_stopping_patience: 조기 종료 patience (Optional)
+            start_epoch: 시작 에포크 (체크포인트 재개시 사용)
         
         Returns:
             Dict: 전체 훈련 결과
@@ -221,12 +243,16 @@ class Trainer:
         print("🚀 모델 훈련 시작")
         print("=" * 80)
         print(f"총 에포크: {epochs}")
+        if start_epoch > 0:
+            print(f"시작 에포크: {start_epoch + 1} (체크포인트에서 재개)")
         print(f"옵티마이저: {optimizer.__class__.__name__}")
         if scheduler:
             print(f"스케줄러: {scheduler.__class__.__name__}")
         print(f"손실 함수: {criterion.__class__.__name__}")
         if early_stopping_patience:
             print(f"조기 종료: {early_stopping_patience} 에포크")
+        if self.weight_manager:
+            print(f"자동 체크포인트 저장: {self.auto_save_epochs} 에포크마다")
         print("=" * 80)
         
         # 훈련 시작 시간
@@ -236,7 +262,7 @@ class Trainer:
         best_val_loss = float('inf')
         patience_counter = 0
         
-        for epoch in range(epochs):
+        for epoch in range(start_epoch, epochs):
             self.current_epoch = epoch
             
             # 현재 학습률 출력
@@ -270,6 +296,54 @@ class Trainer:
             if val_results['accuracy'] > self.best_val_acc:
                 self.best_val_acc = val_results['accuracy']
                 print(f"🏆 New Best Validation Accuracy: {self.best_val_acc:.2f}%")
+                
+                # 최고 성능 달성시 체크포인트 저장
+                if self.weight_manager and all([self.model_name, self.dataset_name, self.optimizer_name]):
+                    try:
+                        self.weight_manager.save_checkpoint(
+                            model=self.model,
+                            optimizer=optimizer,
+                            scheduler=scheduler,
+                            model_name=self.model_name,
+                            dataset_name=self.dataset_name,
+                            optimizer_name=self.optimizer_name,
+                            epoch=epoch,
+                            best_val_acc=self.best_val_acc,
+                            training_time=time.time() - training_start_time,
+                            training_history=self.training_history,
+                            additional_info={
+                                'is_best': True,
+                                'val_loss': val_results['loss'],
+                                'train_acc': train_results['accuracy']
+                            }
+                        )
+                    except Exception as e:
+                        print(f"⚠️ 체크포인트 저장 실패: {e}")
+            
+            # 주기적 체크포인트 저장
+            if (self.weight_manager and self.auto_save_epochs > 0 and 
+                (epoch + 1) % self.auto_save_epochs == 0 and 
+                all([self.model_name, self.dataset_name, self.optimizer_name])):
+                try:
+                    self.weight_manager.save_checkpoint(
+                        model=self.model,
+                        optimizer=optimizer,
+                        scheduler=scheduler,
+                        model_name=self.model_name,
+                        dataset_name=self.dataset_name,
+                        optimizer_name=self.optimizer_name,
+                        epoch=epoch,
+                        best_val_acc=self.best_val_acc,
+                        training_time=time.time() - training_start_time,
+                        training_history=self.training_history,
+                        additional_info={
+                            'is_periodic': True,
+                            'val_loss': val_results['loss'],
+                            'train_acc': train_results['accuracy']
+                        }
+                    )
+                except Exception as e:
+                    print(f"⚠️ 주기적 체크포인트 저장 실패: {e}")
             
             # Early stopping 체크
             if early_stopping_patience:
@@ -330,22 +404,31 @@ class Trainer:
 class OptimizerExperiment:
     """옵티마이저 비교 실험 클래스"""
     
-    def __init__(self, dataset_type: int, model_type: str = 'default'):
+    def __init__(self, dataset_type: int, model_type: str = 'default', 
+                 enable_checkpoints: bool = True, weights_dir: str = "./weights"):
         """
         Args:
             dataset_type: 1(MNIST), 2(CIFAR-10), 3(Tiny ImageNet)
             model_type: 모델 타입
+            enable_checkpoints: 체크포인트 저장 활성화 여부
+            weights_dir: 체크포인트 저장 디렉토리
         """
         self.dataset_type = dataset_type
         self.model_type = model_type
         self.experiment_results = {}
+        self.enable_checkpoints = enable_checkpoints
         
         # 데이터셋 이름 매핑
         self.dataset_names = {1: "MNIST", 2: "CIFAR-10", 3: "Tiny ImageNet"}
         
+        # WeightManager 초기화
+        self.weight_manager = WeightManager(weights_dir) if enable_checkpoints else None
+        
         print(f"🧪 OptimizerExperiment 초기화")
         print(f"   데이터셋: {self.dataset_names[dataset_type]}")
         print(f"   모델: {model_type}")
+        if enable_checkpoints:
+            print(f"   체크포인트: 활성화 ({weights_dir})")
     
     def run_single_optimizer_experiment(self, optimizer_name: str, 
                                       optimizer: torch.optim.Optimizer,
@@ -354,7 +437,8 @@ class OptimizerExperiment:
                                       test_loader: Optional[DataLoader],
                                       model: nn.Module,
                                       epochs: int,
-                                      scheduler=None) -> Dict[str, Any]:
+                                      scheduler=None,
+                                      resume_from_checkpoint: bool = False) -> Dict[str, Any]:
         """단일 옵티마이저 실험 실행"""
         
         print("\n" + "="*100)
@@ -362,7 +446,27 @@ class OptimizerExperiment:
         print("="*100)
         
         # Trainer 생성
-        trainer = Trainer(model, device='auto')
+        trainer = Trainer(model, device='auto', weight_manager=self.weight_manager)
+        
+        # 메타데이터 설정
+        trainer.set_metadata(
+            model_name=model.__class__.__name__,
+            dataset_name=self.dataset_names[self.dataset_type],
+            optimizer_name=optimizer_name
+        )
+        
+        # 체크포인트에서 재개 여부 확인
+        start_epoch = 0
+        if resume_from_checkpoint and self.weight_manager:
+            continuous_trainer = ContinuousTrainer(self.weight_manager)
+            resume_result = continuous_trainer.find_and_resume_best(
+                model, optimizer, scheduler,
+                model.__class__.__name__,
+                self.dataset_names[self.dataset_type]
+            )
+            if resume_result:
+                start_epoch, trainer.training_history = resume_result
+                trainer.best_val_acc = max(trainer.training_history.get('val_acc', [0]))
         
         # 손실 함수
         criterion = nn.CrossEntropyLoss()
@@ -375,7 +479,8 @@ class OptimizerExperiment:
             optimizer=optimizer,
             criterion=criterion,
             epochs=epochs,
-            scheduler=scheduler
+            scheduler=scheduler,
+            start_epoch=start_epoch
         )
         
         # 실험 결과에 옵티마이저 정보 추가
@@ -395,7 +500,8 @@ class OptimizerExperiment:
                                 test_loader: Optional[DataLoader],
                                 model_factory_fn,
                                 epochs: int,
-                                scheduler_factory_fn=None) -> Dict[str, Any]:
+                                scheduler_factory_fn=None,
+                                resume_from_checkpoint: bool = False) -> Dict[str, Any]:
         """
         여러 옵티마이저 비교 실험 실행
         
@@ -405,6 +511,7 @@ class OptimizerExperiment:
             model_factory_fn: 모델 생성 함수
             epochs: 훈련 에포크 수
             scheduler_factory_fn: 스케줄러 생성 함수 (Optional)
+            resume_from_checkpoint: 체크포인트에서 재개할지 여부
         
         Returns:
             Dict: 모든 옵티마이저 실험 결과
@@ -443,7 +550,8 @@ class OptimizerExperiment:
                     test_loader=test_loader,
                     model=model,
                     epochs=epochs,
-                    scheduler=scheduler
+                    scheduler=scheduler,
+                    resume_from_checkpoint=resume_from_checkpoint
                 )
                 
                 all_results[opt_name] = results

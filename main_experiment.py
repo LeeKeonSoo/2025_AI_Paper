@@ -26,6 +26,7 @@ from data_loaders import get_dataset_loader, print_dataset_info
 from models import create_model, print_model_summary, get_model_info
 from trainer import OptimizerExperiment, create_standard_scheduler
 from visualizer import ExperimentVisualizer
+from weight_manager import WeightManager, ContinuousTrainer
 
 
 def setup_experiment_config(dataset_type: int, epochs: int = None, lr: float = None) -> dict:
@@ -123,7 +124,7 @@ def create_optimizers_config(base_lr: float, weight_decay: float) -> dict:
 
 def run_experiment(dataset_type: int, epochs: int = None, lr: float = None, 
                   batch_size: int = None, model_type: str = None,
-                  optimizers_to_test: list = None) -> dict:
+                  optimizers_to_test: list = None, resume_training: bool = False) -> dict:
     """
     메인 실험 실행
     
@@ -134,6 +135,7 @@ def run_experiment(dataset_type: int, epochs: int = None, lr: float = None,
         batch_size: 배치 크기
         model_type: 모델 타입
         optimizers_to_test: 테스트할 옵티마이저 리스트
+        resume_training: 기존 체크포인트에서 훈련 재개 여부
     
     Returns:
         dict: 실험 결과
@@ -220,7 +222,11 @@ def run_experiment(dataset_type: int, epochs: int = None, lr: float = None,
     
     # 6. 실험 실행
     print(f"\n🧪 실험 시작...")
-    experiment = OptimizerExperiment(dataset_type, config['model_type'])
+    experiment = OptimizerExperiment(dataset_type, config['model_type'], enable_checkpoints=True)
+    
+    # 체크포인트 재개 옵션 표시
+    if resume_training:
+        print("🔄 기존 체크포인트에서 훈련 재개 활성화")
     
     start_time = time.time()
     
@@ -231,7 +237,8 @@ def run_experiment(dataset_type: int, epochs: int = None, lr: float = None,
         test_loader=data_loader.test_loader,
         model_factory_fn=model_factory,
         epochs=config['epochs'],
-        scheduler_factory_fn=scheduler_factory
+        scheduler_factory_fn=scheduler_factory,
+        resume_from_checkpoint=resume_training
     )
     
     total_experiment_time = time.time() - start_time
@@ -322,6 +329,27 @@ def interactive_mode():
         except ValueError:
             print("❌ 숫자를 입력해주세요.")
     
+    # 체크포인트 관리 옵션
+    print("\n체크포인트 관리:")
+    print("1. 저장된 체크포인트 목록 보기")
+    print("2. 실험 진행하기")
+    
+    while True:
+        try:
+            checkpoint_choice = int(input("선택하세요 (1-2): "))
+            if checkpoint_choice in [1, 2]:
+                break
+            else:
+                print("❌ 1, 2 중에서 선택해주세요.")
+        except ValueError:
+            print("❌ 숫자를 입력해주세요.")
+    
+    if checkpoint_choice == 1:
+        # 체크포인트 목록 표시
+        wm = WeightManager("./weights")
+        wm.list_checkpoints(detailed=True)
+        return None
+    
     # 실험 모드 선택
     print("\n실험 모드를 선택하세요:")
     print("1. 빠른 테스트 (3 에포크, Adam vs AdamABS)")
@@ -339,13 +367,17 @@ def interactive_mode():
         except ValueError:
             print("❌ 숫자를 입력해주세요.")
     
+    # 훈련 재개 옵션
+    resume_input = input("\n기존 체크포인트에서 훈련을 재개하시겠습니까? (y/N): ").strip().lower()
+    resume_training = resume_input in ['y', 'yes', '예']
+    
     # 실험 실행
     if mode_choice == 1:
-        return quick_test(dataset_choice)
+        return run_experiment(dataset_choice, epochs=3, optimizers_to_test=['Adam', 'AdamABS'], resume_training=resume_training)
     elif mode_choice == 2:
-        return compare_adam_vs_adamabs(dataset_choice)
+        return run_experiment(dataset_choice, optimizers_to_test=['Adam', 'AdamABS'], resume_training=resume_training)
     elif mode_choice == 3:
-        return full_comparison(dataset_choice)
+        return run_experiment(dataset_choice, resume_training=resume_training)
     elif mode_choice == 4:
         # 사용자 정의 설정
         print("\n사용자 정의 설정:")
@@ -366,7 +398,7 @@ def interactive_mode():
             except ValueError:
                 print("❌ 잘못된 입력. 기본값을 사용합니다.")
         
-        return run_experiment(dataset_choice, epochs=epochs, lr=lr)
+        return run_experiment(dataset_choice, epochs=epochs, lr=lr, resume_training=resume_training)
 
 
 def main():
@@ -400,8 +432,18 @@ def main():
                        help='빠른 테스트 모드 (3 에포크)')
     parser.add_argument('--adam-vs-adamabs', action='store_true',
                        help='Adam vs AdamABS만 비교')
+    parser.add_argument('--resume', action='store_true',
+                       help='기존 체크포인트에서 훈련 재개')
+    parser.add_argument('--list-checkpoints', action='store_true',
+                       help='저장된 체크포인트 목록 표시')
     
     args = parser.parse_args()
+    
+    # 체크포인트 목록 표시
+    if args.list_checkpoints:
+        wm = WeightManager("./weights")
+        wm.list_checkpoints(detailed=True)
+        return None
     
     # 명령행 인자가 없으면 대화형 모드
     if len(sys.argv) == 1:
@@ -424,7 +466,8 @@ def main():
             lr=args.lr,
             batch_size=args.batch_size,
             model_type=args.model,
-            optimizers_to_test=args.optimizers
+            optimizers_to_test=args.optimizers,
+            resume_training=args.resume
         )
 
 
