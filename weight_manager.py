@@ -6,10 +6,8 @@ Author: AI Research
 Date: 2025
 """
 
-import os
 import torch
 import json
-import pickle
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
 from pathlib import Path
@@ -94,6 +92,58 @@ class WeightManager:
                 hash_md5.update(chunk)
         return hash_md5.hexdigest()
     
+    def _find_best_checkpoint_for_combination(self, model_name: str, dataset_name: str, optimizer_name: str) -> Optional[WeightCheckpoint]:
+        """특정 모델/데이터셋/옵티마이저 조합의 기존 최고 성능 체크포인트 찾기"""
+        matching_checkpoints = [
+            checkpoint for checkpoint in self.metadata
+            if (checkpoint.model_name == model_name and 
+                checkpoint.dataset_name == dataset_name and 
+                checkpoint.optimizer_name == optimizer_name)
+        ]
+        
+        if not matching_checkpoints:
+            return None
+        
+        # 가장 높은 정확도의 체크포인트 반환
+        return max(matching_checkpoints, key=lambda x: x.best_val_acc)
+    
+    def _delete_checkpoints_for_combination(self, model_name: str, dataset_name: str, optimizer_name: str):
+        """특정 모델/데이터셋/옵티마이저 조합의 모든 체크포인트 삭제"""
+        checkpoints_to_delete = []
+        
+        # 삭제할 체크포인트 찾기
+        for i, checkpoint in enumerate(self.metadata):
+            if (checkpoint.model_name == model_name and 
+                checkpoint.dataset_name == dataset_name and 
+                checkpoint.optimizer_name == optimizer_name):
+                checkpoints_to_delete.append(i)
+        
+        # 파일 삭제
+        deleted_files = 0
+        for i in reversed(checkpoints_to_delete):  # 역순으로 삭제하여 인덱스 문제 방지
+            checkpoint = self.metadata[i]
+            
+            # 파일 패턴으로 찾아서 삭제
+            file_patterns = [
+                f"{model_name}_{dataset_name}_{optimizer_name}_BEST.pth",
+                f"{model_name}_{dataset_name}_{optimizer_name}_ep*_*.pth"
+            ]
+            
+            for pattern in file_patterns:
+                matching_files = list(self.base_dir.glob(pattern))
+                for file_path in matching_files:
+                    if file_path.exists():
+                        file_path.unlink()
+                        deleted_files += 1
+            
+            # 메타데이터에서 제거
+            self.metadata.pop(i)
+        
+        # 메타데이터 저장
+        if deleted_files > 0:
+            self._save_metadata()
+            print(f"   🗑️  기존 파일 {deleted_files}개 삭제")
+    
     def save_checkpoint(self, model: torch.nn.Module, 
                        optimizer: torch.optim.Optimizer,
                        scheduler: Optional[torch.optim.lr_scheduler._LRScheduler],
@@ -104,9 +154,10 @@ class WeightManager:
                        best_val_acc: float,
                        training_time: float,
                        training_history: Dict[str, List],
-                       additional_info: Optional[Dict[str, Any]] = None) -> str:
+                       additional_info: Optional[Dict[str, Any]] = None,
+                       force_save: bool = False) -> Optional[str]:
         """
-        체크포인트 저장
+        체크포인트 저장 (더 좋은 성능일 때만)
         
         Args:
             model: 모델
@@ -120,14 +171,30 @@ class WeightManager:
             training_time: 훈련 시간
             training_history: 훈련 히스토리
             additional_info: 추가 정보
+            force_save: 강제 저장 여부 (성능 비교 무시)
         
         Returns:
-            str: 저장된 파일 경로
+            Optional[str]: 저장된 파일 경로 (저장되지 않으면 None)
         """
-        # 파일명 생성
-        filename = self._generate_checkpoint_name(
-            model_name, dataset_name, optimizer_name, epoch
+        # 기존 체크포인트 찾기
+        existing_checkpoint = self._find_best_checkpoint_for_combination(
+            model_name, dataset_name, optimizer_name
         )
+        
+        # 성능 비교 (force_save가 False인 경우에만)
+        if not force_save and existing_checkpoint is not None:
+            if best_val_acc <= existing_checkpoint.best_val_acc:
+                print(f"⚠️  현재 성능 ({best_val_acc:.2f}%) ≤ 기존 최고 성능 ({existing_checkpoint.best_val_acc:.2f}%)")
+                print(f"   체크포인트 저장하지 않음")
+                return None
+            else:
+                print(f"🚀 성능 향상 감지: {existing_checkpoint.best_val_acc:.2f}% → {best_val_acc:.2f}%")
+                print(f"   기존 체크포인트를 새로운 최고 성능으로 대체합니다")
+                # 기존 파일들 삭제
+                self._delete_checkpoints_for_combination(model_name, dataset_name, optimizer_name)
+        
+        # 고정된 파일명 생성 (타임스탬프 없이)
+        filename = f"{model_name}_{dataset_name}_{optimizer_name}_BEST.pth"
         file_path = self.base_dir / filename
         
         # 저장할 데이터 구성
@@ -197,10 +264,11 @@ class WeightManager:
             self.metadata.append(checkpoint_meta)
             self._save_metadata()
             
-            print(f"✅ 체크포인트 저장 완료")
+            print(f"✅ 최고 성능 체크포인트 저장 완료")
             print(f"   파일: {filename}")
             print(f"   크기: {file_size / (1024*1024):.1f} MB")
             print(f"   최고 정확도: {best_val_acc:.2f}%")
+            print(f"   에포크: {epoch}")
             
             return str(file_path)
             
@@ -420,7 +488,8 @@ class ContinuousTrainer:
                            optimizer: torch.optim.Optimizer,
                            scheduler: Optional[torch.optim.lr_scheduler._LRScheduler],
                            model_name: str,
-                           dataset_name: str) -> Optional[Tuple[int, Dict[str, List]]]:
+                           dataset_name: str,
+                           optimizer_name: str) -> Optional[Tuple[int, Dict[str, List]]]:
         """
         최고 성능 체크포인트에서 자동 재개
         
@@ -428,24 +497,28 @@ class ContinuousTrainer:
             model, optimizer, scheduler: 훈련 객체들
             model_name: 모델 이름
             dataset_name: 데이터셋 이름
+            optimizer_name: 옵티마이저 이름
         
         Returns:
             Optional[Tuple]: (시작 에포크, 훈련 히스토리) 또는 None
         """
-        best_checkpoint = self.weight_manager.get_best_checkpoint(model_name, dataset_name)
+        # 특정 조합의 최고 성능 체크포인트 찾기
+        best_checkpoint = self.weight_manager._find_best_checkpoint_for_combination(
+            model_name, dataset_name, optimizer_name
+        )
         
         if best_checkpoint is None:
-            print(f"📝 {model_name}/{dataset_name}의 기존 체크포인트가 없습니다. 처음부터 훈련을 시작합니다.")
+            print(f"📝 {model_name}/{dataset_name}/{optimizer_name}의 기존 체크포인트가 없습니다. 처음부터 훈련을 시작합니다.")
             return None
         
-        # 체크포인트 파일 경로 찾기
-        checkpoint_files = list(self.weight_manager.base_dir.glob(f"*{best_checkpoint.optimizer_name}_ep{best_checkpoint.epoch:03d}_*.pth"))
+        # 새로운 파일명 패턴으로 체크포인트 파일 찾기
+        checkpoint_file = self.weight_manager.base_dir / f"{model_name}_{dataset_name}_{optimizer_name}_BEST.pth"
         
-        if not checkpoint_files:
-            print(f"❌ 체크포인트 파일을 찾을 수 없습니다: {best_checkpoint.model_name}")
+        if not checkpoint_file.exists():
+            print(f"❌ 체크포인트 파일을 찾을 수 없습니다: {checkpoint_file}")
             return None
         
-        checkpoint_path = str(checkpoint_files[0])
+        checkpoint_path = str(checkpoint_file)
         return self.resume_from_checkpoint(model, optimizer, scheduler, checkpoint_path)
 
 
@@ -511,7 +584,7 @@ if __name__ == "__main__":
     new_model = nn.Sequential(nn.Linear(10, 50), nn.ReLU(), nn.Linear(50, 5))
     new_optimizer = torch.optim.Adam(new_model.parameters(), lr=0.001)
     
-    result = ct.find_and_resume_best(new_model, new_optimizer, None, "TestModel", "TestDataset")
+    result = ct.find_and_resume_best(new_model, new_optimizer, None, "TestModel", "TestDataset", "Adam")
     if result:
         start_epoch, history = result
         print(f"재개 에포크: {start_epoch}")

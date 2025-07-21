@@ -21,20 +21,17 @@ class Trainer:
     
     def __init__(self, model: nn.Module, device: str = 'auto', 
                  print_every_n_batches: int = 100, 
-                 weight_manager: Optional[WeightManager] = None,
-                 auto_save_epochs: int = 5):
+                 weight_manager: Optional[WeightManager] = None):
         """
         Args:
             model: 훈련할 모델
             device: 사용할 디바이스 ('auto', 'cuda', 'cpu')
             print_every_n_batches: 배치마다 출력할 간격
-            weight_manager: WeightManager 인스턴스 (자동 저장용)
-            auto_save_epochs: 몇 에포크마다 자동 저장할지
+            weight_manager: WeightManager 인스턴스 (최고 성능시 자동 저장)
         """
         self.model = model
         self.print_every_n_batches = print_every_n_batches
         self.weight_manager = weight_manager
-        self.auto_save_epochs = auto_save_epochs
         
         # 디바이스 설정
         if device == 'auto':
@@ -66,7 +63,7 @@ class Trainer:
         print(f"   모델: {self.model.__class__.__name__}")
         print(f"   파라미터 수: {self._count_parameters():,}")
         if self.weight_manager:
-            print(f"   자동 저장: {self.auto_save_epochs} 에포크마다")
+            print(f"   체크포인트: 최고 성능 달성시 자동 저장")
     
     def _count_parameters(self) -> int:
         """모델 파라미터 수 계산"""
@@ -252,7 +249,7 @@ class Trainer:
         if early_stopping_patience:
             print(f"조기 종료: {early_stopping_patience} 에포크")
         if self.weight_manager:
-            print(f"자동 체크포인트 저장: {self.auto_save_epochs} 에포크마다")
+            print(f"체크포인트: 최고 성능 달성시 자동 저장")
         print("=" * 80)
         
         # 훈련 시작 시간
@@ -297,10 +294,10 @@ class Trainer:
                 self.best_val_acc = val_results['accuracy']
                 print(f"🏆 New Best Validation Accuracy: {self.best_val_acc:.2f}%")
                 
-                # 최고 성능 달성시 체크포인트 저장
+                # 최고 성능 달성시에만 체크포인트 저장
                 if self.weight_manager and all([self.model_name, self.dataset_name, self.optimizer_name]):
                     try:
-                        self.weight_manager.save_checkpoint(
+                        saved_path = self.weight_manager.save_checkpoint(
                             model=self.model,
                             optimizer=optimizer,
                             scheduler=scheduler,
@@ -317,33 +314,10 @@ class Trainer:
                                 'train_acc': train_results['accuracy']
                             }
                         )
+                        if saved_path:
+                            print(f"💾 체크포인트 갱신됨")
                     except Exception as e:
                         print(f"⚠️ 체크포인트 저장 실패: {e}")
-            
-            # 주기적 체크포인트 저장
-            if (self.weight_manager and self.auto_save_epochs > 0 and 
-                (epoch + 1) % self.auto_save_epochs == 0 and 
-                all([self.model_name, self.dataset_name, self.optimizer_name])):
-                try:
-                    self.weight_manager.save_checkpoint(
-                        model=self.model,
-                        optimizer=optimizer,
-                        scheduler=scheduler,
-                        model_name=self.model_name,
-                        dataset_name=self.dataset_name,
-                        optimizer_name=self.optimizer_name,
-                        epoch=epoch,
-                        best_val_acc=self.best_val_acc,
-                        training_time=time.time() - training_start_time,
-                        training_history=self.training_history,
-                        additional_info={
-                            'is_periodic': True,
-                            'val_loss': val_results['loss'],
-                            'train_acc': train_results['accuracy']
-                        }
-                    )
-                except Exception as e:
-                    print(f"⚠️ 주기적 체크포인트 저장 실패: {e}")
             
             # Early stopping 체크
             if early_stopping_patience:
@@ -462,7 +436,8 @@ class OptimizerExperiment:
             resume_result = continuous_trainer.find_and_resume_best(
                 model, optimizer, scheduler,
                 model.__class__.__name__,
-                self.dataset_names[self.dataset_type]
+                self.dataset_names[self.dataset_type],
+                optimizer_name
             )
             if resume_result:
                 start_epoch, trainer.training_history = resume_result
