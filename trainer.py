@@ -443,10 +443,10 @@ class OptimizerExperiment:
                 start_epoch, trainer.training_history = resume_result
                 trainer.best_val_acc = max(trainer.training_history.get('val_acc', [0]))
         
-        # 손실 함수
-        criterion = nn.CrossEntropyLoss()
+        # 손실 함수 (Label Smoothing 적용 - 과적합 방지)
+        criterion = create_standard_criterion(label_smoothing=0.1)
         
-        # 훈련 실행
+        # 훈련 실행 (강화된 Early Stopping 적용)
         results = trainer.train_model(
             train_loader=train_loader,
             val_loader=val_loader,
@@ -455,6 +455,7 @@ class OptimizerExperiment:
             criterion=criterion,
             epochs=epochs,
             scheduler=scheduler,
+            early_stopping_patience=7,  # 7 에포크 patience (과적합 조기 차단)
             start_epoch=start_epoch
         )
         
@@ -591,9 +592,9 @@ class OptimizerExperiment:
         print("="*100)
 
 
-def create_standard_criterion() -> nn.Module:
+def create_standard_criterion(label_smoothing: float = 0.0) -> nn.Module:
     """표준 손실 함수 생성"""
-    return nn.CrossEntropyLoss()
+    return nn.CrossEntropyLoss(label_smoothing=label_smoothing)
 
 
 def create_standard_scheduler(optimizer: torch.optim.Optimizer, 

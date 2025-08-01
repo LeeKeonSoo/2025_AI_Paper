@@ -237,12 +237,12 @@ class SimpleCIFAR10Net(nn.Module):
 class TinyImageNetResNet(nn.Module):
     """Tiny ImageNet용 ResNet (더 깊은 구조)"""
     
-    def __init__(self, num_classes: int = 200, dropout_rate: float = 0.3):
+    def __init__(self, num_classes: int = 200, dropout_rate: float = 0.6):
         super(TinyImageNetResNet, self).__init__()
-        # 입력이 224x224로 리사이즈되므로 표준 ResNet 구조 사용
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        # 입력이 128x128로 리사이즈되므로 더 작은 커널 사용 (Tiny ImageNet 최적화)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)  # 7x7→3x3, stride 2→1
         self.bn1 = nn.BatchNorm2d(64)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)  # 3x3→2x2 (128x128에 적합)
         
         self.layer1 = self._make_layer(64, 64, 3, stride=1)
         self.layer2 = self._make_layer(64, 128, 4, stride=2)
@@ -293,12 +293,12 @@ class TinyImageNetResNet(nn.Module):
 class SimpleTinyImageNetNet(nn.Module):
     """간단한 Tiny ImageNet CNN 모델"""
     
-    def __init__(self, num_classes: int = 200, dropout_rate: float = 0.3):
+    def __init__(self, num_classes: int = 200, dropout_rate: float = 0.6):
         super(SimpleTinyImageNetNet, self).__init__()
-        # 224x224 입력 가정
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3)
+        # 128x128 입력에 최적화
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1)  # Tiny ImageNet에 적합
         self.bn1 = nn.BatchNorm2d(64)
-        self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
         
         self.conv2 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
         self.bn2 = nn.BatchNorm2d(128)
@@ -428,7 +428,7 @@ def get_model_info(dataset_type: int) -> Dict[str, Any]:
                 'simple': 'SimpleTinyImageNetNet (Basic CNN)'
             },
             'num_classes': 200,
-            'input_size': (3, 224, 224)  # 리사이즈 후
+            'input_size': (3, 128, 128)  # 64x64에서 128x128로 리사이즈
         }
     }
     

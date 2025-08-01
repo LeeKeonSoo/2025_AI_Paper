@@ -172,7 +172,7 @@ class DatasetLoader:
             return {
                 'name': 'Tiny ImageNet',
                 'num_classes': 200,
-                'image_size': (3, 64, 64),  # 원본은 64x64, 모델에서 224x224로 리사이즈
+                'image_size': (3, 128, 128),  # 64x64 원본을 128x128로 리사이즈
                 'mean': (0.485, 0.456, 0.406),  # ImageNet 표준
                 'std': (0.229, 0.224, 0.225),
                 'channels': 3
@@ -212,18 +212,16 @@ class DatasetLoader:
             ])
             
         elif self.dataset_type == 3:  # Tiny ImageNet
-            # 64x64를 224x224로 리사이즈 (일반적인 CNN 모델 호환성)
+            # Train-Val 전처리 통일 및 해상도 최적화
             train_transform = transforms.Compose([
-                transforms.Resize(224),  # ResNet 등에서 사용하는 표준 크기
-                transforms.RandomHorizontalFlip(p=0.5),
-                transforms.RandomRotation(15),
-                transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+                transforms.Resize(128),  # 224→128로 변경: 64x64에서 2배 확대(자연스러움)
+                transforms.RandomHorizontalFlip(p=0.3),  # 약한 증강만 유지
                 transforms.ToTensor(),
                 transforms.Normalize(info['mean'], info['std'])
             ])
             
             test_transform = transforms.Compose([
-                transforms.Resize(224),
+                transforms.Resize(128),  # Train과 동일한 해상도 사용
                 transforms.ToTensor(),
                 transforms.Normalize(info['mean'], info['std'])
             ])
