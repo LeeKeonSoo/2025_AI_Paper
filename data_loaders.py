@@ -140,6 +140,13 @@ class DatasetLoader:
         print(f"   검증 샘플: {len(self.val_loader.dataset):,}개")
         print(f"   테스트 샘플: {len(self.test_loader.dataset):,}개")
         print(f"   배치 크기: {self.batch_size}")
+        
+        # Tiny ImageNet의 경우 원본 데이터셋 구조 사용 안내
+        if self.dataset_type == 3:
+            print(f"   📋 Tiny ImageNet: 원본 데이터셋 구조 사용")
+            print(f"      - Train: 원본 train 폴더 (100,000개)")
+            print(f"      - Val: 원본 val 폴더 (10,000개)")
+            print(f"      - Test: 원본 val 폴더와 동일")
     
     def _get_dataset_info(self) -> Dict[str, Any]:
         """데이터셋 정보 반환"""
@@ -311,7 +318,7 @@ class DatasetLoader:
         return train_loader, val_loader, test_loader
     
     def _create_tiny_imagenet_loaders(self, train_transform, test_transform) -> Tuple[DataLoader, DataLoader, DataLoader]:
-        """Tiny ImageNet 데이터 로더 생성"""
+        """Tiny ImageNet 데이터 로더 생성 - 원본 데이터셋 구조 그대로 사용"""
         tiny_imagenet_dir = os.path.join(self.data_dir, 'tiny-imagenet-200')
         
         if not os.path.exists(tiny_imagenet_dir):
@@ -321,8 +328,8 @@ class DatasetLoader:
                 f"압축 해제 후 {self.data_dir} 폴더에 넣어주세요."
             )
         
-        # Tiny ImageNet 데이터셋 로드
-        full_train_dataset = TinyImageNetDataset(
+        # 원본 데이터셋 구조 그대로 사용
+        train_dataset = TinyImageNetDataset(
             root_dir=tiny_imagenet_dir, split='train', transform=train_transform
         )
         
@@ -330,13 +337,8 @@ class DatasetLoader:
             root_dir=tiny_imagenet_dir, split='val', transform=test_transform
         )
         
-        # 훈련 데이터의 일부를 검증용으로 분할
-        train_size = int((1 - self.validation_split) * len(full_train_dataset))
-        val_size = len(full_train_dataset) - train_size
-        train_dataset, additional_val_dataset = random_split(
-            full_train_dataset, [train_size, val_size],
-            generator=torch.Generator().manual_seed(42)
-        )
+        # 테스트 데이터는 검증 데이터와 동일 (라벨이 있는 유일한 테스트 세트)
+        test_dataset = val_dataset
         
         # 데이터 로더 생성
         train_loader = DataLoader(
@@ -344,15 +346,15 @@ class DatasetLoader:
             num_workers=self.num_workers, pin_memory=torch.cuda.is_available()
         )
         
-        # 검증 데이터는 훈련에서 분할한 것 사용
+        # 검증 데이터는 원본 val 폴더 사용
         val_loader = DataLoader(
-            additional_val_dataset, batch_size=self.batch_size, shuffle=False,
+            val_dataset, batch_size=self.batch_size, shuffle=False,
             num_workers=self.num_workers, pin_memory=torch.cuda.is_available()
         )
         
-        # 테스트 데이터는 원본 검증 데이터 사용
+        # 테스트 데이터는 검증 데이터와 동일
         test_loader = DataLoader(
-            val_dataset, batch_size=self.batch_size, shuffle=False,
+            test_dataset, batch_size=self.batch_size, shuffle=False,
             num_workers=self.num_workers, pin_memory=torch.cuda.is_available()
         )
         
