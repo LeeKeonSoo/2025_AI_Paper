@@ -235,23 +235,24 @@ class SimpleCIFAR10Net(nn.Module):
 # =============================================================================
 
 class TinyImageNetResNet(nn.Module):
-    """Tiny ImageNet용 ResNet (더 깊은 구조)"""
+    """Tiny ImageNet용 ResNet-18 (검증된 구조)"""
     
-    def __init__(self, num_classes: int = 200, dropout_rate: float = 0.6):
+    def __init__(self, num_classes: int = 200, dropout_rate: float = 0.0):
         super(TinyImageNetResNet, self).__init__()
-        # 입력이 128x128로 리사이즈되므로 더 작은 커널 사용 (Tiny ImageNet 최적화)
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)  # 7x7→3x3, stride 2→1
+        # 64x64 입력에 최적화된 ResNet-18
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
-        self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)  # 3x3→2x2 (128x128에 적합)
+        # 64x64는 작으므로 maxpool 제거
         
-        self.layer1 = self._make_layer(64, 64, 3, stride=1)
-        self.layer2 = self._make_layer(64, 128, 4, stride=2)
-        self.layer3 = self._make_layer(128, 256, 6, stride=2)
-        self.layer4 = self._make_layer(256, 512, 3, stride=2)
+        # ResNet-18 구조: [2, 2, 2, 2]
+        self.layer1 = self._make_layer(64, 64, 2, stride=1)
+        self.layer2 = self._make_layer(64, 128, 2, stride=2)
+        self.layer3 = self._make_layer(128, 256, 2, stride=2)
+        self.layer4 = self._make_layer(256, 512, 2, stride=2)
         
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512, num_classes)
-        self.dropout = nn.Dropout(dropout_rate)
+        # ResNet에서는 dropout 사용하지 않음 (BatchNorm이 정규화 역할)
         
         self._initialize_weights()
     
@@ -276,7 +277,7 @@ class TinyImageNetResNet(nn.Module):
     
     def forward(self, x):
         x = F.relu(self.bn1(self.conv1(x)))
-        x = self.maxpool(x)
+        # 64x64 입력에서는 maxpool 제거
         
         x = self.layer1(x)
         x = self.layer2(x)
@@ -285,7 +286,6 @@ class TinyImageNetResNet(nn.Module):
         
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
-        x = self.dropout(x)
         x = self.fc(x)
         return x
 
@@ -428,7 +428,7 @@ def get_model_info(dataset_type: int) -> Dict[str, Any]:
                 'simple': 'SimpleTinyImageNetNet (Basic CNN)'
             },
             'num_classes': 200,
-            'input_size': (3, 128, 128)  # 64x64에서 128x128로 리사이즈
+            'input_size': (3, 64, 64)  # 원본 64x64 해상도 유지
         }
     }
     

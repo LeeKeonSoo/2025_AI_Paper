@@ -172,7 +172,7 @@ class DatasetLoader:
             return {
                 'name': 'Tiny ImageNet',
                 'num_classes': 200,
-                'image_size': (3, 128, 128),  # 64x64 원본을 128x128로 리사이즈
+                'image_size': (3, 64, 64),  # 원본 64x64 해상도 유지
                 'mean': (0.485, 0.456, 0.406),  # ImageNet 표준
                 'std': (0.229, 0.224, 0.225),
                 'channels': 3
@@ -212,16 +212,15 @@ class DatasetLoader:
             ])
             
         elif self.dataset_type == 3:  # Tiny ImageNet
-            # Train-Val 전처리 통일 및 해상도 최적화
+            # 검증된 Tiny ImageNet 전처리 (64x64 원본 해상도 유지)
             train_transform = transforms.Compose([
-                transforms.Resize(128),  # 224→128로 변경: 64x64에서 2배 확대(자연스러움)
-                transforms.RandomHorizontalFlip(p=0.3),  # 약한 증강만 유지
+                transforms.RandomHorizontalFlip(p=0.5),
+                transforms.RandomCrop(64, padding=4),  # 핵심 증강!
                 transforms.ToTensor(),
                 transforms.Normalize(info['mean'], info['std'])
             ])
             
             test_transform = transforms.Compose([
-                transforms.Resize(128),  # Train과 동일한 해상도 사용
                 transforms.ToTensor(),
                 transforms.Normalize(info['mean'], info['std'])
             ])

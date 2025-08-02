@@ -443,10 +443,10 @@ class OptimizerExperiment:
                 start_epoch, trainer.training_history = resume_result
                 trainer.best_val_acc = max(trainer.training_history.get('val_acc', [0]))
         
-        # 손실 함수 (Label Smoothing 적용 - 과적합 방지)
-        criterion = create_standard_criterion(label_smoothing=0.1)
+        # 손실 함수 (표준 CrossEntropy)
+        criterion = create_standard_criterion()
         
-        # 훈련 실행 (강화된 Early Stopping 적용)
+        # 훈련 실행 (자연스러운 학습)
         results = trainer.train_model(
             train_loader=train_loader,
             val_loader=val_loader,
@@ -455,7 +455,7 @@ class OptimizerExperiment:
             criterion=criterion,
             epochs=epochs,
             scheduler=scheduler,
-            early_stopping_patience=7,  # 7 에포크 patience (과적합 조기 차단)
+            # early stopping 제거 - 검증된 설정에서는 사용하지 않음
             start_epoch=start_epoch
         )
         
