@@ -59,12 +59,12 @@ def setup_experiment_config(dataset_type: int, epochs: int = None, lr: float = N
             'model_type': 'default',
             'scheduler_type': 'cosine'
         },
-        3: {  # Tiny ImageNet - 과적합 방지 강화 설정 (ResNet)
-            'epochs': 50,         # 더 긴 학습으로 일반화 성능 향상
-            'lr': 0.0005,         # 더 보수적인 학습률 (0.001 → 0.0005)
-            'weight_decay': 5e-4, # 더 강한 L2 정규화 (1e-4 → 5e-4)
-            'batch_size': 128,    # 유지
-            'model_type': 'default',  # ResNet-18 사용
+        3: {  # Tiny ImageNet - 고성능 ViT 기본 설정 (80%+ 목표)
+            'epochs': 100,        # ViT 충분한 훈련 (50 → 100)
+            'lr': 3e-4,          # ViT 최적 학습률 (0.0005 → 3e-4)
+            'weight_decay': 0.05, # ViT 강한 정규화 (5e-4 → 0.05)
+            'batch_size': 64,     # ViT 메모리 고려 (128 → 64)
+            'model_type': 'deit', # 검증된 고성능 ViT (default → deit)
             'scheduler_type': 'cosine'
         }
     }
@@ -382,8 +382,34 @@ def interactive_mode():
         # 사용자 정의 설정
         print("\n사용자 정의 설정:")
         
+        # 모델 선택 (Tiny ImageNet인 경우)
+        model_type = 'default'
+        if dataset_choice == 3:  # Tiny ImageNet
+            print("\n💡 Tiny ImageNet 모델 선택 (80%+ 정확도 목표):")
+            model_info = get_model_info(dataset_choice)
+            models = model_info['models']
+            
+            model_options = []
+            print("=" * 60)
+            for i, (key, desc) in enumerate(models.items(), 1):
+                print(f"{i}. {key}: {desc}")
+                model_options.append(key)
+            print("=" * 60)
+            
+            while True:
+                try:
+                    model_choice = int(input(f"모델을 선택하세요 (1-{len(model_options)}): "))
+                    if 1 <= model_choice <= len(model_options):
+                        model_type = model_options[model_choice - 1]
+                        print(f"✅ 선택된 모델: {model_type}")
+                        break
+                    else:
+                        print(f"❌ 1-{len(model_options)} 범위에서 선택해주세요.")
+                except ValueError:
+                    print("❌ 숫자를 입력해주세요.")
+        
         epochs = None
-        epochs_input = input("에포크 수 (기본값 사용하려면 엔터): ").strip()
+        epochs_input = input("\n에포크 수 (기본값 사용하려면 엔터): ").strip()
         if epochs_input:
             try:
                 epochs = int(epochs_input)
@@ -398,7 +424,7 @@ def interactive_mode():
             except ValueError:
                 print("❌ 잘못된 입력. 기본값을 사용합니다.")
         
-        return run_experiment(dataset_choice, epochs=epochs, lr=lr, resume_training=resume_training)
+        return run_experiment(dataset_choice, epochs=epochs, lr=lr, model_type=model_type, resume_training=resume_training)
 
 
 def main():
@@ -423,8 +449,9 @@ def main():
                        help='학습률')
     parser.add_argument('--batch-size', type=int,
                        help='배치 크기')
-    parser.add_argument('--model', type=str, choices=['default', 'simple', 'resnet', 'vit', 'compact_vit'],
-                       help='모델 타입')
+    parser.add_argument('--model', type=str, 
+                       choices=['default', 'simple', 'resnet', 'vit', 'compact_vit', 'deit', 'optimized_vit', 'max_perf', 'hybrid', 'efficient', 'efficient_vit'],
+                       help='모델 타입 (Tiny ImageNet: deit=80%+, max_perf=85%+ 목표)')
     parser.add_argument('--optimizers', nargs='+', 
                        choices=['Adam', 'AdamW', 'AdamABS'],
                        help='테스트할 옵티마이저 (기본: 모두)')
