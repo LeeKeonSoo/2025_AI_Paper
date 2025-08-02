@@ -516,7 +516,13 @@ class OptimizedTinyImageNetViT(nn.Module):
         if x.size(-1) != 224:
             x = F.interpolate(x, size=224, mode='bicubic', align_corners=False, antialias=True)
         
+        # timm 모델의 올바른 사용법
         features = self.backbone.forward_features(x)
+        
+        # 전역 평균 풀링 적용 (필요한 경우)
+        if len(features.shape) > 2:  # [B, L, D] 형태인 경우
+            features = features.mean(dim=1)  # [B, D]로 변환
+        
         return self.head(features)
 
 
@@ -586,6 +592,10 @@ class MaxPerformanceViT(nn.Module):
         # 두 백본에서 특징 추출
         conv_features = self.conv_backbone(x)
         vit_features = self.vit_backbone.forward_features(x)
+        
+        # ViT 특징이 3차원인 경우 2차원으로 변환
+        if len(vit_features.shape) > 2:  # [B, L, D] 형태인 경우
+            vit_features = vit_features.mean(dim=1)  # [B, D]로 변환
         
         # 특징 융합
         combined = torch.cat([conv_features, vit_features], dim=1)
@@ -659,6 +669,10 @@ class EfficientTinyImageNetViT(nn.Module):
         # 두 백본에서 특징 추출
         efficient_features = self.efficient_backbone(x)
         vit_features = self.vit_backbone.forward_features(x)
+        
+        # ViT 특징이 3차원인 경우 2차원으로 변환
+        if len(vit_features.shape) > 2:  # [B, L, D] 형태인 경우
+            vit_features = vit_features.mean(dim=1)  # [B, D]로 변환
         
         # 특징 융합
         combined = torch.cat([efficient_features, vit_features], dim=1)
