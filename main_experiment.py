@@ -61,7 +61,7 @@ def setup_experiment_config(dataset_type: int, epochs: int = None, lr: float = N
         },
         3: {  # Tiny ImageNet - 고성능 ViT 기본 설정 (80%+ 목표)
             'epochs': 100,        # ViT 충분한 훈련 (50 → 100)
-            'lr': 1e-3,          # 학습률 대폭 증가 (3e-4 → 1e-3)
+            'lr': 0.005,         # 학습률 5배 증가 (1e-3 → 0.005) ⭐ 핵심 수정
             'weight_decay': 0.01, # 정규화 완화 (0.05 → 0.01)
             'batch_size': 128,    # 배치 크기 증가 (64 → 128)
             'model_type': 'deit', # 검증된 고성능 ViT (default → deit)

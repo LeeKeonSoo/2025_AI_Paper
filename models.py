@@ -464,7 +464,7 @@ class CompactTinyImageNetViT(nn.Module):
 class OptimizedTinyImageNetViT(nn.Module):
     """DeiT 기반 Tiny ImageNet 최적화 ViT (80%+ 보장)"""
     
-    def __init__(self, num_classes=200, pretrained=False):  # False로 변경하여 테스트
+    def __init__(self, num_classes=200, pretrained=True):  # True로 복원
         super().__init__()
         
         try:
@@ -473,10 +473,10 @@ class OptimizedTinyImageNetViT(nn.Module):
         except ImportError:
             raise ImportError("timm 라이브러리가 필요합니다: pip install timm")
         
-        # DeiT-Small: 검증된 고성능 구조 (pretrained=False로 테스트)
+        # DeiT-Small: 검증된 고성능 구조 (pretrained weights 사용)
         self.backbone = timm.create_model(
             'deit_small_patch16_224',
-            pretrained=pretrained,  # False로 설정하여 스크래치부터 훈련
+            pretrained=pretrained,  # True로 복원
             num_classes=0,  # feature extractor로 사용
             drop_rate=0.0,  # 별도 드롭아웃 적용
             drop_path_rate=0.1,
