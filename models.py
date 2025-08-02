@@ -9,6 +9,7 @@ Date: 2025
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
 from typing import Dict, Any, Optional
 
 
@@ -234,6 +235,227 @@ class SimpleCIFAR10Net(nn.Module):
 # Tiny ImageNet 모델들
 # =============================================================================
 
+class PatchEmbedding(nn.Module):
+    """64x64 이미지를 위한 패치 임베딩"""
+    
+    def __init__(self, img_size=64, patch_size=8, in_channels=3, embed_dim=256):
+        super(PatchEmbedding, self).__init__()
+        self.img_size = img_size
+        self.patch_size = patch_size
+        self.num_patches = (img_size // patch_size) ** 2  # 64
+        
+        self.projection = nn.Conv2d(in_channels, embed_dim, kernel_size=patch_size, stride=patch_size)
+        
+    def forward(self, x):
+        # x: [batch_size, 3, 64, 64]
+        x = self.projection(x)  # [batch_size, embed_dim, 8, 8]
+        x = x.flatten(2)        # [batch_size, embed_dim, 64]
+        x = x.transpose(1, 2)   # [batch_size, 64, embed_dim]
+        return x
+
+
+class MultiHeadAttention(nn.Module):
+    """멀티헤드 어텐션"""
+    
+    def __init__(self, embed_dim, num_heads, dropout_rate=0.1):
+        super(MultiHeadAttention, self).__init__()
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.head_dim = embed_dim // num_heads
+        
+        assert embed_dim % num_heads == 0, "embed_dim must be divisible by num_heads"
+        
+        self.qkv = nn.Linear(embed_dim, embed_dim * 3)
+        self.output_proj = nn.Linear(embed_dim, embed_dim)
+        self.dropout = nn.Dropout(dropout_rate)
+        
+    def forward(self, x):
+        batch_size, seq_len, embed_dim = x.shape
+        
+        # QKV 계산
+        qkv = self.qkv(x).reshape(batch_size, seq_len, 3, self.num_heads, self.head_dim)
+        qkv = qkv.permute(2, 0, 3, 1, 4)  # [3, batch_size, num_heads, seq_len, head_dim]
+        q, k, v = qkv[0], qkv[1], qkv[2]
+        
+        # Scaled dot-product attention
+        scale = math.sqrt(self.head_dim)
+        attention_scores = torch.matmul(q, k.transpose(-2, -1)) / scale
+        attention_weights = F.softmax(attention_scores, dim=-1)
+        attention_weights = self.dropout(attention_weights)
+        
+        attention_output = torch.matmul(attention_weights, v)
+        attention_output = attention_output.transpose(1, 2).reshape(batch_size, seq_len, embed_dim)
+        
+        output = self.output_proj(attention_output)
+        return output
+
+
+class TransformerBlock(nn.Module):
+    """트랜스포머 블록"""
+    
+    def __init__(self, embed_dim, num_heads, mlp_ratio=4, dropout_rate=0.1):
+        super(TransformerBlock, self).__init__()
+        self.norm1 = nn.LayerNorm(embed_dim)
+        self.attention = MultiHeadAttention(embed_dim, num_heads, dropout_rate)
+        self.norm2 = nn.LayerNorm(embed_dim)
+        
+        mlp_hidden_dim = int(embed_dim * mlp_ratio)
+        self.mlp = nn.Sequential(
+            nn.Linear(embed_dim, mlp_hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(mlp_hidden_dim, embed_dim),
+            nn.Dropout(dropout_rate)
+        )
+        
+    def forward(self, x):
+        # Pre-norm architecture
+        x = x + self.attention(self.norm1(x))
+        x = x + self.mlp(self.norm2(x))
+        return x
+
+
+class TinyImageNetViT(nn.Module):
+    """Tiny ImageNet 64x64에 최적화된 Vision Transformer"""
+    
+    def __init__(self, img_size=64, patch_size=8, num_classes=200, embed_dim=256, 
+                 depth=8, num_heads=8, mlp_ratio=4, dropout_rate=0.1):
+        super(TinyImageNetViT, self).__init__()
+        self.num_classes = num_classes
+        self.embed_dim = embed_dim
+        self.num_patches = (img_size // patch_size) ** 2
+        
+        # 패치 임베딩
+        self.patch_embed = PatchEmbedding(img_size, patch_size, 3, embed_dim)
+        
+        # 클래스 토큰과 위치 임베딩
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.pos_embed = nn.Parameter(torch.zeros(1, self.num_patches + 1, embed_dim))
+        self.dropout = nn.Dropout(dropout_rate)
+        
+        # 트랜스포머 블록들
+        self.blocks = nn.ModuleList([
+            TransformerBlock(embed_dim, num_heads, mlp_ratio, dropout_rate)
+            for _ in range(depth)
+        ])
+        
+        # 분류 헤드
+        self.norm = nn.LayerNorm(embed_dim)
+        self.head = nn.Linear(embed_dim, num_classes)
+        
+        self._initialize_weights()
+    
+    def _initialize_weights(self):
+        """가중치 초기화"""
+        # 위치 임베딩 초기화
+        nn.init.trunc_normal_(self.pos_embed, std=0.02)
+        nn.init.trunc_normal_(self.cls_token, std=0.02)
+        
+        # 선형 레이어 초기화
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.trunc_normal_(m.weight, std=0.02)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.LayerNorm):
+                nn.init.constant_(m.bias, 0)
+                nn.init.constant_(m.weight, 1.0)
+    
+    def forward(self, x):
+        batch_size = x.shape[0]
+        
+        # 패치 임베딩
+        x = self.patch_embed(x)  # [batch_size, num_patches, embed_dim]
+        
+        # 클래스 토큰 추가
+        cls_token = self.cls_token.expand(batch_size, -1, -1)
+        x = torch.cat([cls_token, x], dim=1)  # [batch_size, num_patches+1, embed_dim]
+        
+        # 위치 임베딩 추가
+        x = x + self.pos_embed
+        x = self.dropout(x)
+        
+        # 트랜스포머 블록들 통과
+        for block in self.blocks:
+            x = block(x)
+        
+        # 분류
+        x = self.norm(x)
+        cls_token_final = x[:, 0]  # 클래스 토큰만 사용
+        x = self.head(cls_token_final)
+        
+        return x
+
+
+class CompactTinyImageNetViT(nn.Module):
+    """더 컴팩트한 Tiny ImageNet ViT (빠른 실험용)"""
+    
+    def __init__(self, img_size=64, patch_size=16, num_classes=200, embed_dim=192, 
+                 depth=6, num_heads=6, mlp_ratio=3, dropout_rate=0.1):
+        super(CompactTinyImageNetViT, self).__init__()
+        self.num_classes = num_classes
+        self.embed_dim = embed_dim
+        self.num_patches = (img_size // patch_size) ** 2  # 16 patches
+        
+        # 패치 임베딩 (더 큰 패치 크기)
+        self.patch_embed = PatchEmbedding(img_size, patch_size, 3, embed_dim)
+        
+        # 클래스 토큰과 위치 임베딩
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.pos_embed = nn.Parameter(torch.zeros(1, self.num_patches + 1, embed_dim))
+        self.dropout = nn.Dropout(dropout_rate)
+        
+        # 트랜스포머 블록들 (더 적은 수)
+        self.blocks = nn.ModuleList([
+            TransformerBlock(embed_dim, num_heads, mlp_ratio, dropout_rate)
+            for _ in range(depth)
+        ])
+        
+        # 분류 헤드
+        self.norm = nn.LayerNorm(embed_dim)
+        self.head = nn.Linear(embed_dim, num_classes)
+        
+        self._initialize_weights()
+    
+    def _initialize_weights(self):
+        """가중치 초기화"""
+        nn.init.trunc_normal_(self.pos_embed, std=0.02)
+        nn.init.trunc_normal_(self.cls_token, std=0.02)
+        
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.trunc_normal_(m.weight, std=0.02)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.LayerNorm):
+                nn.init.constant_(m.bias, 0)
+                nn.init.constant_(m.weight, 1.0)
+    
+    def forward(self, x):
+        batch_size = x.shape[0]
+        
+        # 패치 임베딩
+        x = self.patch_embed(x)
+        
+        # 클래스 토큰 추가
+        cls_token = self.cls_token.expand(batch_size, -1, -1)
+        x = torch.cat([cls_token, x], dim=1)
+        
+        # 위치 임베딩 추가
+        x = x + self.pos_embed
+        x = self.dropout(x)
+        
+        # 트랜스포머 블록들 통과
+        for block in self.blocks:
+            x = block(x)
+        
+        # 분류
+        x = self.norm(x)
+        cls_token_final = x[:, 0]
+        x = self.head(cls_token_final)
+        
+        return x
+
 class TinyImageNetResNet(nn.Module):
     """Tiny ImageNet용 ResNet-18 (과적합 방지 강화)"""
     
@@ -392,7 +614,11 @@ def create_model(dataset_type: int, model_type: str = 'default', **kwargs) -> nn
             raise ValueError(f"CIFAR-10에서 지원하지 않는 모델 타입: {model_type}")
     
     elif dataset_type == 3:  # Tiny ImageNet
-        if model_type.lower() in ['default', 'resnet']:
+        if model_type.lower() in ['default', 'vit']:
+            return TinyImageNetViT(num_classes=200, dropout_rate=dropout_rate)
+        elif model_type.lower() == 'compact_vit':
+            return CompactTinyImageNetViT(num_classes=200, dropout_rate=dropout_rate)
+        elif model_type.lower() == 'resnet':
             return TinyImageNetResNet(num_classes=200, dropout_rate=dropout_rate)
         elif model_type.lower() == 'simple':
             return SimpleTinyImageNetNet(num_classes=200, dropout_rate=dropout_rate)
@@ -429,12 +655,14 @@ def get_model_info(dataset_type: int) -> Dict[str, Any]:
         3: {  # Tiny ImageNet
             'dataset': 'Tiny ImageNet',
             'models': {
-                'default': 'TinyImageNetResNet (Deep ResNet)',
-                'resnet': 'TinyImageNetResNet (same as default)',
+                'default': 'TinyImageNetViT (Vision Transformer for 64x64)',
+                'vit': 'TinyImageNetViT (same as default)',
+                'compact_vit': 'CompactTinyImageNetViT (Lightweight ViT)',
+                'resnet': 'TinyImageNetResNet (Deep ResNet)',
                 'simple': 'SimpleTinyImageNetNet (Basic CNN)'
             },
             'num_classes': 200,
-            'input_size': (3, 64, 64)  # 원본 64x64 해상도 유지
+            'input_size': (3, 64, 64)  # 64x64 해상도에 최적화
         }
     }
     
