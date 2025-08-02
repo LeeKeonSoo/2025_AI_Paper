@@ -235,9 +235,9 @@ class SimpleCIFAR10Net(nn.Module):
 # =============================================================================
 
 class TinyImageNetResNet(nn.Module):
-    """Tiny ImageNet용 ResNet-18 (검증된 구조)"""
+    """Tiny ImageNet용 ResNet-18 (과적합 방지 강화)"""
     
-    def __init__(self, num_classes: int = 200, dropout_rate: float = 0.0):
+    def __init__(self, num_classes: int = 200, dropout_rate: float = 0.3):
         super(TinyImageNetResNet, self).__init__()
         # 64x64 입력에 최적화된 ResNet-18
         self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
@@ -251,8 +251,12 @@ class TinyImageNetResNet(nn.Module):
         self.layer4 = self._make_layer(256, 512, 2, stride=2)
         
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        
+        # 과적합 방지를 위한 dropout 레이어들 추가
+        self.dropout1 = nn.Dropout(dropout_rate * 0.5)  # 중간 층에 약한 dropout
+        self.dropout2 = nn.Dropout(dropout_rate)         # 최종 층에 강한 dropout
+        
         self.fc = nn.Linear(512, num_classes)
-        # ResNet에서는 dropout 사용하지 않음 (BatchNorm이 정규화 역할)
         
         self._initialize_weights()
     
@@ -281,11 +285,13 @@ class TinyImageNetResNet(nn.Module):
         
         x = self.layer1(x)
         x = self.layer2(x)
+        x = self.dropout1(x)  # 중간에 약한 dropout
         x = self.layer3(x)
         x = self.layer4(x)
         
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
+        x = self.dropout2(x)  # 최종 분류 전에 강한 dropout
         x = self.fc(x)
         return x
 

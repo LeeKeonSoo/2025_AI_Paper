@@ -59,13 +59,13 @@ def setup_experiment_config(dataset_type: int, epochs: int = None, lr: float = N
             'model_type': 'default',
             'scheduler_type': 'cosine'
         },
-        3: {  # Tiny ImageNet - 검증된 설정
-            'epochs': 30,
-            'lr': 0.001,  # Adam 기준 표준 학습률
-            'weight_decay': 1e-4,  # 적절한 수준
-            'batch_size': 128,   # 유지
-            'model_type': 'default',
-            'scheduler_type': 'cosine'
+        3: {  # Tiny ImageNet - 초소형 ViT 전용 설정
+            'epochs': 100,  # 더 많은 에포크로 천천히 학습
+            'lr': 0.00003,   # 매우 낮은 학습률로 안정적 학습
+            'weight_decay': 0.01,  # 경량 정규화
+            'batch_size': 128,      # 작은 배치로 안정성 확보
+            'model_type': 'vit',   # 초소형 ViT
+            'scheduler_type': 'gentle_warmup'  # 부드러운 워밍업
         }
     }
     
@@ -96,8 +96,8 @@ def create_optimizers_config(base_lr: float, weight_decay: float) -> dict:
             'optimizer_class': CustomAdam,
             'params': {
                 'lr': base_lr,
-                'betas': (0.9, 0.999),
-                'eps': 1e-8,
+                'betas': (0.9, 0.999),   # ViT에 더 적합한 베타값
+                'eps': 1e-8,            # 더 큰 epsilon
                 'weight_decay': weight_decay
             }
         },
@@ -105,8 +105,8 @@ def create_optimizers_config(base_lr: float, weight_decay: float) -> dict:
             'optimizer_class': CustomAdamW,
             'params': {
                 'lr': base_lr,
-                'betas': (0.9, 0.999),
-                'eps': 1e-8,
+                'betas': (0.9, 0.999),   # ViT에 더 적합한 베타값
+                'eps': 1e-8,            # 더 큰 epsilon
                 'weight_decay': weight_decay
             }
         },
@@ -114,8 +114,8 @@ def create_optimizers_config(base_lr: float, weight_decay: float) -> dict:
             'optimizer_class': CustomAdamABS,
             'params': {
                 'lr': base_lr * 0.8,  # AdamABS는 약간 작은 학습률 사용
-                'betas': (0.9, 0.999),
-                'eps': 1e-8,
+                'betas': (0.9, 0.999),  # ViT에서는 더 빠른 모멘텀 감소
+                'eps': 1e-8,  # 더 큰 epsilon으로 안정성 확보
                 'weight_decay': weight_decay
             }
         },

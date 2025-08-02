@@ -443,10 +443,15 @@ class OptimizerExperiment:
                 start_epoch, trainer.training_history = resume_result
                 trainer.best_val_acc = max(trainer.training_history.get('val_acc', [0]))
         
-        # 손실 함수 (표준 CrossEntropy)
-        criterion = create_standard_criterion()
+        # 손실 함수 (Tiny ImageNet의 경우 Label Smoothing 적용)
+        if self.dataset_type == 3:  # Tiny ImageNet
+            criterion = create_standard_criterion(label_smoothing=0.1)
+        else:
+            criterion = create_standard_criterion()
         
-        # 훈련 실행 (자연스러운 학습)
+        # 훈련 실행 (Tiny ImageNet에서는 조기 종료 사용)
+        early_stopping_patience = 15 if self.dataset_type == 3 else None
+        
         results = trainer.train_model(
             train_loader=train_loader,
             val_loader=val_loader,
@@ -455,7 +460,7 @@ class OptimizerExperiment:
             criterion=criterion,
             epochs=epochs,
             scheduler=scheduler,
-            # early stopping 제거 - 검증된 설정에서는 사용하지 않음
+            early_stopping_patience=early_stopping_patience,
             start_epoch=start_epoch
         )
         

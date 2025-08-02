@@ -212,12 +212,16 @@ class DatasetLoader:
             ])
             
         elif self.dataset_type == 3:  # Tiny ImageNet
-            # 검증된 Tiny ImageNet 전처리 (64x64 원본 해상도 유지)
+            # 과적합 방지를 위한 강화된 데이터 증강
             train_transform = transforms.Compose([
                 transforms.RandomHorizontalFlip(p=0.5),
-                transforms.RandomCrop(64, padding=4),  # 핵심 증강!
+                transforms.RandomCrop(64, padding=8),  # 더 강한 크롭 (4→8)
+                transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1),  # 색상 변화
+                transforms.RandomRotation(degrees=15),  # 회전 추가
+                transforms.RandomApply([transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0))], p=0.2),  # 블러
                 transforms.ToTensor(),
-                transforms.Normalize(info['mean'], info['std'])
+                transforms.Normalize(info['mean'], info['std']),
+                transforms.RandomErasing(p=0.1, scale=(0.02, 0.33), ratio=(0.3, 3.3))  # CutOut 효과
             ])
             
             test_transform = transforms.Compose([
