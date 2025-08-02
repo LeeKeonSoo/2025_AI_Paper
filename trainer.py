@@ -266,6 +266,12 @@ class Trainer:
             current_lr = optimizer.param_groups[0]['lr']
             print(f"\n🎯 Epoch {epoch+1}/{epochs} (LR: {current_lr:.2e})")
             
+            # 첫 번째 에포크에서 학습률 확인
+            if epoch == 0:
+                print(f"⚠️  시작 학습률: {current_lr:.2e}")
+                if current_lr < 1e-4:
+                    print(f"🔄 학습률이 너무 낮을 수 있습니다. 권장: 1e-3 이상")
+            
             # 훈련
             train_results = self.train_epoch(
                 train_loader, optimizer, criterion, epoch, epochs
