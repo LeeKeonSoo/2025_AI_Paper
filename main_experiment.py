@@ -113,6 +113,7 @@ def create_optimizers_config(base_lr: float, weight_decay: float) -> dict:
         'AdamABS': {
             'optimizer_class': CustomAdamABS,
             'params': {
+                'lr': base_lr,
                 'betas': (0.9, 0.999),
                 'eps': 1e-8,
                 'weight_decay': weight_decay
