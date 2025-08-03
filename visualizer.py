@@ -676,6 +676,408 @@ class ExperimentVisualizer:
         return saved_files
 
 
+class AdamABSAnalyzer:
+    """AdamABS 논문용 특화 분석 클래스"""
+    
+    def __init__(self, results_dir: str = './results'):
+        self.results_dir = results_dir
+        self.colors = {
+            'Adam': '#1f77b4',
+            'AdamW': '#ff7f0e', 
+            'AdamABS': '#2ca02c'
+        }
+        os.makedirs(results_dir, exist_ok=True)
+        
+        # 논문용 스타일 설정
+        plt.rcParams.update({
+            'font.size': 11,
+            'axes.titlesize': 13,
+            'axes.labelsize': 12,
+            'legend.fontsize': 10,
+            'figure.titlesize': 15,
+            'lines.linewidth': 2.5,
+            'grid.alpha': 0.3
+        })
+    
+    def plot_efficiency_comparison(self, experiment_results: Dict[str, Any], 
+                                 dataset_name: str) -> str:
+        """계산 효율성 비교 (AdamABS의 핵심 장점)"""
+        
+        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+        fig.suptitle(f'AdamABS Efficiency Analysis - {dataset_name}', 
+                    fontsize=16, fontweight='bold')
+        
+        opt_names = list(experiment_results.keys())
+        colors_list = [self.colors.get(name, 'gray') for name in opt_names]
+        
+        # 1. 정확도 vs 훈련시간
+        ax = axes[0, 0]
+        for i, opt_name in enumerate(opt_names):
+            results = experiment_results[opt_name]
+            acc = results['best_val_acc']
+            time = results['total_training_time']
+            ax.scatter(time, acc, s=200, c=colors_list[i], alpha=0.8, 
+                      label=opt_name, edgecolors='black', linewidth=1)
+            ax.annotate(f'{opt_name}\n{acc:.1f}%', (time, acc), 
+                       xytext=(5, 5), textcoords='offset points', fontsize=10)
+        
+        ax.set_xlabel('Total Training Time (seconds)')
+        ax.set_ylabel('Best Validation Accuracy (%)')
+        ax.set_title('Accuracy vs Training Time', fontweight='bold')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        # 2. 에포크당 시간 비교
+        ax = axes[0, 1]
+        epoch_times = [experiment_results[name]['avg_epoch_time'] for name in opt_names]
+        bars = ax.bar(opt_names, epoch_times, color=colors_list, alpha=0.8)
+        
+        # Adam 대비 개선도 계산
+        if 'Adam' in opt_names:
+            adam_time = experiment_results['Adam']['avg_epoch_time']
+            for i, (bar, time_val, opt_name) in enumerate(zip(bars, epoch_times, opt_names)):
+                improvement = (adam_time - time_val) / adam_time * 100
+                ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.1,
+                       f'{time_val:.1f}s\n({improvement:+.1f}%)', 
+                       ha='center', va='bottom', fontweight='bold')
+        
+        ax.set_title('Average Epoch Time', fontweight='bold')
+        ax.set_ylabel('Time (seconds)')
+        plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+        
+        # 3. 수렴 효율성 (목표 정확도 도달 시간)
+        ax = axes[1, 0]
+        target_acc = 50.0  # 50% 목표
+        convergence_times = []
+        
+        for opt_name in opt_names:
+            results = experiment_results[opt_name]
+            val_acc_history = results['training_history']['val_acc']
+            epoch_times = results['training_history'].get('epoch_times', 
+                                                        [results['avg_epoch_time']] * len(val_acc_history))
+            
+            # 목표 정확도 달성 시점 찾기
+            converged_epoch = None
+            for epoch, acc in enumerate(val_acc_history):
+                if acc >= target_acc:
+                    converged_epoch = epoch
+                    break
+            
+            if converged_epoch is not None:
+                conv_time = sum(epoch_times[:converged_epoch+1])
+                convergence_times.append(conv_time)
+            else:
+                convergence_times.append(sum(epoch_times))  # 전체 시간
+        
+        bars = ax.bar(opt_names, convergence_times, color=colors_list, alpha=0.8)
+        ax.set_title(f'Time to Reach {target_acc}% Accuracy', fontweight='bold')
+        ax.set_ylabel('Time (seconds)')
+        
+        for bar, time_val in zip(bars, convergence_times):
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(convergence_times)*0.01,
+                   f'{time_val:.0f}s', ha='center', va='bottom', fontweight='bold')
+        
+        plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+        
+        # 4. 종합 효율성 점수
+        ax = axes[1, 1]
+        efficiency_scores = []
+        
+        for opt_name in opt_names:
+            results = experiment_results[opt_name]
+            # 효율성 = 정확도 / (시간 * 복잡도_가중치)
+            acc = results['best_val_acc']
+            time = results['total_training_time']
+            
+            # AdamABS는 sqrt 연산이 없어서 복잡도 가중치 0.9
+            complexity_weight = 0.9 if 'ABS' in opt_name else 1.0
+            efficiency = acc / (time * complexity_weight)
+            efficiency_scores.append(efficiency)
+        
+        bars = ax.bar(opt_names, efficiency_scores, color=colors_list, alpha=0.8)
+        ax.set_title('Overall Efficiency Score\n(Accuracy / Weighted Time)', fontweight='bold')
+        ax.set_ylabel('Efficiency Score')
+        
+        for bar, score in zip(bars, efficiency_scores):
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(efficiency_scores)*0.01,
+                   f'{score:.3f}', ha='center', va='bottom', fontweight='bold')
+        
+        plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+        
+        plt.tight_layout()
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        save_path = os.path.join(self.results_dir, 
+                               f'{dataset_name.lower()}_adamabs_efficiency_{timestamp}.png')
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.show()
+        
+        print(f"⚡ AdamABS 효율성 분석 저장: {save_path}")
+        return save_path
+    
+    def plot_convergence_analysis(self, experiment_results: Dict[str, Any], 
+                                dataset_name: str) -> str:
+        """수렴성 분석 (AdamABS vs Adam/AdamW)"""
+        
+        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+        fig.suptitle(f'Convergence Analysis: AdamABS vs Others - {dataset_name}', 
+                    fontsize=16, fontweight='bold')
+        
+        # 1. 학습 곡선 비교 (smoothed)
+        ax = axes[0, 0]
+        for opt_name, results in experiment_results.items():
+            history = results['training_history']
+            val_acc = history['val_acc']
+            
+            # 이동평균으로 부드럽게
+            window = max(3, len(val_acc) // 10)
+            if len(val_acc) > window:
+                smoothed_acc = pd.Series(val_acc).rolling(window=window, center=True).mean()
+                epochs = range(1, len(smoothed_acc) + 1)
+                color = self.colors.get(opt_name, 'black')
+                ax.plot(epochs, smoothed_acc, label=opt_name, color=color, linewidth=2.5)
+        
+        ax.set_title('Validation Accuracy (Smoothed)', fontweight='bold')
+        ax.set_xlabel('Epoch')
+        ax.set_ylabel('Accuracy (%)')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        # 2. 수렴 속도 (정확도 증가율)
+        ax = axes[0, 1]
+        for opt_name, results in experiment_results.items():
+            val_acc = results['training_history']['val_acc']
+            if len(val_acc) > 1:
+                # 에포크별 정확도 증가율
+                improvement_rate = np.gradient(val_acc)
+                epochs = range(1, len(improvement_rate) + 1)
+                color = self.colors.get(opt_name, 'black')
+                ax.plot(epochs, improvement_rate, label=opt_name, color=color, alpha=0.8)
+        
+        ax.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
+        ax.set_title('Learning Rate (Accuracy Gradient)', fontweight='bold')
+        ax.set_xlabel('Epoch')
+        ax.set_ylabel('Accuracy Improvement per Epoch')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        # 3. 안정성 분석 (rolling std)
+        ax = axes[1, 0]
+        for opt_name, results in experiment_results.items():
+            val_acc = results['training_history']['val_acc']
+            if len(val_acc) > 5:
+                # 5 에포크 rolling standard deviation
+                rolling_std = pd.Series(val_acc).rolling(window=5).std()
+                epochs = range(1, len(rolling_std) + 1)
+                color = self.colors.get(opt_name, 'black')
+                ax.plot(epochs, rolling_std, label=opt_name, color=color, alpha=0.8)
+        
+        ax.set_title('Training Stability (5-Epoch Rolling Std)', fontweight='bold')
+        ax.set_xlabel('Epoch')
+        ax.set_ylabel('Standard Deviation')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        # 4. 최종 수렴 비교
+        ax = axes[1, 1]
+        
+        # 수렴 지표들 계산
+        opt_names = list(experiment_results.keys())
+        convergence_metrics = []
+        
+        for opt_name in opt_names:
+            results = experiment_results[opt_name]
+            val_acc = results['training_history']['val_acc']
+            
+            # 수렴 지표들
+            best_epoch = np.argmax(val_acc) + 1
+            final_stability = np.std(val_acc[-min(10, len(val_acc)):])
+            max_acc = max(val_acc)
+            final_acc = val_acc[-1]
+            
+            convergence_metrics.append({
+                'optimizer': opt_name,
+                'best_epoch': best_epoch,
+                'stability': final_stability,
+                'max_accuracy': max_acc,
+                'final_accuracy': final_acc
+            })
+        
+        # 수렴 품질 점수 계산 (높을수록 좋음)
+        quality_scores = []
+        for metrics in convergence_metrics:
+            # 점수 = 최대정확도 - 조기수렴패널티 - 불안정성패널티
+            score = (metrics['max_accuracy'] - 
+                    (metrics['best_epoch'] / 100) * 5 -  # 조기 수렴 보너스
+                    metrics['stability'] * 10)  # 안정성 보너스
+            quality_scores.append(score)
+        
+        colors_list = [self.colors.get(opt['optimizer'], 'gray') for opt in convergence_metrics]
+        bars = ax.bar([opt['optimizer'] for opt in convergence_metrics], 
+                     quality_scores, color=colors_list, alpha=0.8)
+        
+        ax.set_title('Convergence Quality Score\n(Higher = Better)', fontweight='bold')
+        ax.set_ylabel('Quality Score')
+        
+        for bar, score, metrics in zip(bars, quality_scores, convergence_metrics):
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.1,
+                   f'{score:.1f}\n(E{metrics["best_epoch"]})', 
+                   ha='center', va='bottom', fontweight='bold')
+        
+        plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+        
+        plt.tight_layout()
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        save_path = os.path.join(self.results_dir, 
+                               f'{dataset_name.lower()}_convergence_analysis_{timestamp}.png')
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.show()
+        
+        print(f"📈 수렴성 분석 저장: {save_path}")
+        return save_path
+    
+    def create_paper_figure(self, experiment_results: Dict[str, Any], 
+                          dataset_name: str) -> str:
+        """논문용 종합 그림 생성"""
+        
+        fig = plt.figure(figsize=(20, 12))
+        fig.suptitle(f'AdamABS: A Square-Root-Free Adam Optimizer\nExperimental Results on {dataset_name}', 
+                    fontsize=18, fontweight='bold', y=0.95)
+        
+        # 6개 서브플롯으로 구성
+        gs = fig.add_gridspec(2, 3, hspace=0.3, wspace=0.3)
+        
+        opt_names = list(experiment_results.keys())
+        colors_list = [self.colors.get(name, 'gray') for name in opt_names]
+        
+        # 1. 정확도 비교 (좌상)
+        ax1 = fig.add_subplot(gs[0, 0])
+        val_accs = [experiment_results[name]['best_val_acc'] for name in opt_names]
+        bars = ax1.bar(opt_names, val_accs, color=colors_list, alpha=0.8, edgecolor='black')
+        ax1.set_title('Best Validation Accuracy', fontsize=14, fontweight='bold')
+        ax1.set_ylabel('Accuracy (%)')
+        
+        for bar, acc in zip(bars, val_accs):
+            ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.3,
+                    f'{acc:.1f}%', ha='center', va='bottom', fontweight='bold', fontsize=11)
+        
+        plt.setp(ax1.get_xticklabels(), rotation=0, ha='center')
+        ax1.grid(True, alpha=0.3, axis='y')
+        
+        # 2. 훈련 시간 효율성 (중상)
+        ax2 = fig.add_subplot(gs[0, 1])
+        train_times = [experiment_results[name]['total_training_time'] for name in opt_names]
+        bars = ax2.bar(opt_names, train_times, color=colors_list, alpha=0.8, edgecolor='black')
+        ax2.set_title('Total Training Time', fontsize=14, fontweight='bold')
+        ax2.set_ylabel('Time (seconds)')
+        
+        # Adam 대비 시간 절약 표시
+        if 'Adam' in opt_names:
+            adam_time = experiment_results['Adam']['total_training_time']
+            for bar, time_val, opt_name in zip(bars, train_times, opt_names):
+                improvement = (adam_time - time_val) / adam_time * 100
+                ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(train_times)*0.02,
+                        f'{time_val:.0f}s\n({improvement:+.1f}%)', 
+                        ha='center', va='bottom', fontweight='bold', fontsize=10)
+        
+        plt.setp(ax2.get_xticklabels(), rotation=0, ha='center')
+        ax2.grid(True, alpha=0.3, axis='y')
+        
+        # 3. 학습 곡선 (우상)
+        ax3 = fig.add_subplot(gs[0, 2])
+        for opt_name, results in experiment_results.items():
+            val_acc = results['training_history']['val_acc']
+            epochs = range(1, len(val_acc) + 1)
+            color = self.colors.get(opt_name, 'black')
+            ax3.plot(epochs, val_acc, label=opt_name, color=color, linewidth=2.5, alpha=0.9)
+        
+        ax3.set_title('Validation Accuracy Curves', fontsize=14, fontweight='bold')
+        ax3.set_xlabel('Epoch')
+        ax3.set_ylabel('Accuracy (%)')
+        ax3.legend(loc='lower right')
+        ax3.grid(True, alpha=0.3)
+        
+        # 4. 수렴 속도 (좌하)
+        ax4 = fig.add_subplot(gs[1, 0])
+        convergence_epochs = []
+        for name in opt_names:
+            val_acc_history = experiment_results[name]['training_history']['val_acc']
+            best_epoch = np.argmax(val_acc_history) + 1
+            convergence_epochs.append(best_epoch)
+        
+        bars = ax4.bar(opt_names, convergence_epochs, color=colors_list, alpha=0.8, edgecolor='black')
+        ax4.set_title('Convergence Speed\n(Best Performance Epoch)', fontsize=14, fontweight='bold')
+        ax4.set_ylabel('Epoch')
+        
+        for bar, epoch in zip(bars, convergence_epochs):
+            ax4.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5,
+                    f'{epoch}', ha='center', va='bottom', fontweight='bold', fontsize=11)
+        
+        plt.setp(ax4.get_xticklabels(), rotation=0, ha='center')
+        ax4.grid(True, alpha=0.3, axis='y')
+        
+        # 5. 안정성 (중하)
+        ax5 = fig.add_subplot(gs[1, 1])
+        stability_scores = []
+        for name in opt_names:
+            val_acc_history = experiment_results[name]['training_history']['val_acc']
+            stability = np.std(val_acc_history[-min(10, len(val_acc_history)):])
+            stability_scores.append(stability)
+        
+        bars = ax5.bar(opt_names, stability_scores, color=colors_list, alpha=0.8, edgecolor='black')
+        ax5.set_title('Training Stability\n(Lower = More Stable)', fontsize=14, fontweight='bold')
+        ax5.set_ylabel('Standard Deviation (%)')
+        
+        for bar, std in zip(bars, stability_scores):
+            ax5.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(stability_scores)*0.02,
+                    f'{std:.2f}', ha='center', va='bottom', fontweight='bold', fontsize=11)
+        
+        plt.setp(ax5.get_xticklabels(), rotation=0, ha='center')
+        ax5.grid(True, alpha=0.3, axis='y')
+        
+        # 6. 종합 성능 점수 (우하)
+        ax6 = fig.add_subplot(gs[1, 2])
+        
+        # 종합 점수 계산: 정확도 + 속도 + 안정성
+        overall_scores = []
+        for i, name in enumerate(opt_names):
+            acc_score = val_accs[i] / max(val_accs) * 40  # 40점 만점
+            speed_score = (max(train_times) - train_times[i]) / max(train_times) * 30  # 30점 만점
+            stability_score = (max(stability_scores) - stability_scores[i]) / max(stability_scores) * 30  # 30점 만점
+            
+            total_score = acc_score + speed_score + stability_score
+            overall_scores.append(total_score)
+        
+        bars = ax6.bar(opt_names, overall_scores, color=colors_list, alpha=0.8, edgecolor='black')
+        ax6.set_title('Overall Performance Score\n(Accuracy + Speed + Stability)', fontsize=14, fontweight='bold')
+        ax6.set_ylabel('Score (0-100)')
+        ax6.set_ylim(0, 100)
+        
+        for bar, score in zip(bars, overall_scores):
+            ax6.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1,
+                    f'{score:.1f}', ha='center', va='bottom', fontweight='bold', fontsize=11)
+        
+        plt.setp(ax6.get_xticklabels(), rotation=0, ha='center')
+        ax6.grid(True, alpha=0.3, axis='y')
+        
+        # 하단에 요약 텍스트 추가
+        fig.text(0.5, 0.02, 
+                f'Dataset: {dataset_name} | Optimizers Tested: {", ".join(opt_names)} | '
+                f'Best Optimizer: {opt_names[np.argmax(overall_scores)]} (Score: {max(overall_scores):.1f})',
+                ha='center', va='bottom', fontsize=12, 
+                bbox=dict(boxstyle='round,pad=0.5', facecolor='lightgray', alpha=0.8))
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        save_path = os.path.join(self.results_dir, 
+                               f'{dataset_name.lower()}_paper_figure_{timestamp}.png')
+        plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
+        plt.show()
+        
+        print(f"📄 논문용 종합 그림 저장: {save_path}")
+        return save_path
+
+
 if __name__ == "__main__":
     # 간단한 테스트
     print("ExperimentVisualizer 테스트")
