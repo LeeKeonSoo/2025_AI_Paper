@@ -1078,6 +1078,410 @@ class AdamABSAnalyzer:
         return save_path
 
 
+class BatchSizeVisualizer:
+    """배치 사이즈 비교 실험 전용 시각화 클래스"""
+    
+    def __init__(self, results_dir: str = './results'):
+        self.results_dir = results_dir
+        self.colors = {
+            'Adam': '#1f77b4',
+            'AdamABS': '#2ca02c',
+            'AdamW': '#ff7f0e'
+        }
+        self.batch_colors = {
+            64: '#e74c3c',   # 빨간색
+            128: '#f39c12',  # 주황색  
+            256: '#8e44ad'   # 보라색
+        }
+        
+        # 배치 사이즈 결과 디렉토리 생성
+        self.batch_results_dir = os.path.join(results_dir, 'batch_comparison')
+        os.makedirs(self.batch_results_dir, exist_ok=True)
+        
+        print(f"📊 BatchSizeVisualizer 초기화")
+        print(f"   결과 저장 경로: {os.path.abspath(self.batch_results_dir)}")
+    
+    def plot_batch_size_comparison(self, all_results: Dict[str, Any], 
+                                 save_name: Optional[str] = None) -> str:
+        """
+        배치 사이즈별 성능 비교 그래프
+        
+        Args:
+            all_results: {dataset_name: {batch_64: {Adam: {...}, AdamABS: {...}}, ...}}
+            save_name: 저장할 파일명
+        
+        Returns:
+            str: 저장된 파일 경로
+        """
+        datasets = list(all_results.keys())
+        batch_sizes = [64, 128, 256]
+        optimizers = ['Adam', 'AdamABS']
+        
+        fig, axes = plt.subplots(1, len(datasets), figsize=(6*len(datasets), 6))
+        if len(datasets) == 1:
+            axes = [axes]
+        
+        fig.suptitle('Batch Size Comparison: Adam vs AdamABS', 
+                    fontsize=16, fontweight='bold')
+        
+        for dataset_idx, (dataset_name, dataset_results) in enumerate(all_results.items()):
+            ax = axes[dataset_idx]
+            
+            # 각 옵티마이저별로 배치 사이즈에 따른 성능 플롯
+            for opt_idx, optimizer in enumerate(optimizers):
+                accuracies = []
+                available_batch_sizes = []
+                
+                for batch_size in batch_sizes:
+                    batch_key = f"batch_{batch_size}"
+                    if batch_key in dataset_results and optimizer in dataset_results[batch_key]:
+                        acc = dataset_results[batch_key][optimizer].get('best_val_acc', 0)
+                        accuracies.append(acc)
+                        available_batch_sizes.append(batch_size)
+                
+                if accuracies:
+                    color = self.colors.get(optimizer, 'gray')
+                    ax.plot(available_batch_sizes, accuracies, 
+                           marker='o', linewidth=2.5, markersize=8,
+                           color=color, label=optimizer, alpha=0.8)
+                    
+                    # 각 점에 정확도 값 표시
+                    for bs, acc in zip(available_batch_sizes, accuracies):
+                        ax.annotate(f'{acc:.1f}%', (bs, acc), 
+                                   xytext=(0, 10), textcoords='offset points',
+                                   ha='center', fontsize=9, fontweight='bold')
+            
+            ax.set_xlabel('Batch Size')
+            ax.set_ylabel('Best Validation Accuracy (%)')
+            ax.set_title(f'{dataset_name}', fontweight='bold')
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+            ax.set_xticks(batch_sizes)
+            ax.set_xscale('log', base=2)  # 로그 스케일로 배치 사이즈 표시
+        
+        plt.tight_layout()
+        
+        # 파일 저장
+        if save_name is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_name = f'batch_size_comparison_{timestamp}.png'
+        
+        save_path = os.path.join(self.batch_results_dir, save_name)
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.show()
+        
+        print(f"📊 배치 사이즈 비교 그래프 저장: {save_path}")
+        return save_path
+    
+    def plot_batch_size_heatmap(self, all_results: Dict[str, Any], 
+                              optimizer: str = 'AdamABS',
+                              save_name: Optional[str] = None) -> str:
+        """
+        데이터셋 × 배치사이즈 성능 히트맵
+        
+        Args:
+            all_results: 모든 실험 결과
+            optimizer: 분석할 옵티마이저
+            save_name: 저장할 파일명
+        
+        Returns:
+            str: 저장된 파일 경로
+        """
+        datasets = list(all_results.keys())
+        batch_sizes = [64, 128, 256]
+        
+        # 데이터 매트릭스 생성
+        data_matrix = []
+        for dataset_name in datasets:
+            dataset_results = all_results[dataset_name]
+            row = []
+            for batch_size in batch_sizes:
+                batch_key = f"batch_{batch_size}"
+                if (batch_key in dataset_results and 
+                    optimizer in dataset_results[batch_key]):
+                    acc = dataset_results[batch_key][optimizer].get('best_val_acc', 0)
+                    row.append(acc)
+                else:
+                    row.append(np.nan)
+            data_matrix.append(row)
+        
+        # 히트맵 생성
+        fig, ax = plt.subplots(figsize=(8, 6))
+        
+        im = ax.imshow(data_matrix, cmap='RdYlGn', aspect='auto', vmin=0, vmax=100)
+        
+        # 축 라벨 설정
+        ax.set_xticks(range(len(batch_sizes)))
+        ax.set_xticklabels([f'Batch {bs}' for bs in batch_sizes])
+        ax.set_yticks(range(len(datasets)))
+        ax.set_yticklabels(datasets)
+        
+        # 각 셀에 수치 표시
+        for i in range(len(datasets)):
+            for j in range(len(batch_sizes)):
+                if not np.isnan(data_matrix[i][j]):
+                    text = ax.text(j, i, f'{data_matrix[i][j]:.1f}%',
+                                 ha="center", va="center", color="black", fontweight='bold')
+        
+        # 컬러바
+        cbar = plt.colorbar(im, ax=ax)
+        cbar.set_label('Validation Accuracy (%)', rotation=270, labelpad=20)
+        
+        ax.set_title(f'{optimizer} Performance Heatmap\n(Dataset × Batch Size)', 
+                    fontsize=14, fontweight='bold')
+        
+        plt.tight_layout()
+        
+        # 파일 저장
+        if save_name is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_name = f'{optimizer.lower()}_batch_heatmap_{timestamp}.png'
+        
+        save_path = os.path.join(self.batch_results_dir, save_name)
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.show()
+        
+        print(f"🔥 {optimizer} 배치 사이즈 히트맵 저장: {save_path}")
+        return save_path
+    
+    def plot_convergence_by_batch_size(self, all_results: Dict[str, Any],
+                                     dataset_name: str,
+                                     save_name: Optional[str] = None) -> str:
+        """
+        배치 사이즈별 수렴 속도 분석
+        
+        Args:
+            all_results: 모든 실험 결과
+            dataset_name: 분석할 데이터셋
+            save_name: 저장할 파일명
+        
+        Returns:
+            str: 저장된 파일 경로
+        """
+        if dataset_name not in all_results:
+            raise ValueError(f"Dataset {dataset_name} not found in results")
+        
+        dataset_results = all_results[dataset_name]
+        batch_sizes = [64, 128, 256]
+        optimizers = ['Adam', 'AdamABS']
+        
+        fig, axes = plt.subplots(1, 2, figsize=(15, 6))
+        fig.suptitle(f'Convergence Analysis: {dataset_name}', 
+                    fontsize=16, fontweight='bold')
+        
+        for opt_idx, optimizer in enumerate(optimizers):
+            ax = axes[opt_idx]
+            
+            for batch_size in batch_sizes:
+                batch_key = f"batch_{batch_size}"
+                if (batch_key in dataset_results and 
+                    optimizer in dataset_results[batch_key]):
+                    
+                    results = dataset_results[batch_key][optimizer]
+                    if 'training_history' in results:
+                        val_acc = results['training_history'].get('val_acc', [])
+                        if val_acc:
+                            epochs = range(1, len(val_acc) + 1)
+                            color = self.batch_colors.get(batch_size, 'gray')
+                            ax.plot(epochs, val_acc, 
+                                   color=color, linewidth=2, alpha=0.8,
+                                   label=f'Batch {batch_size}')
+            
+            ax.set_xlabel('Epoch')
+            ax.set_ylabel('Validation Accuracy (%)')
+            ax.set_title(f'{optimizer}', fontweight='bold')
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        
+        # 파일 저장
+        if save_name is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_name = f'{dataset_name.lower()}_convergence_analysis_{timestamp}.png'
+        
+        save_path = os.path.join(self.batch_results_dir, save_name)
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.show()
+        
+        print(f"📈 {dataset_name} 수렴 분석 저장: {save_path}")
+        return save_path
+    
+    def create_batch_size_analysis(self, all_results: Dict[str, Any]) -> Dict[str, str]:
+        """
+        배치 사이즈 분석 종합 보고서 생성
+        
+        Args:
+            all_results: 모든 실험 결과
+        
+        Returns:
+            Dict[str, str]: 생성된 파일들의 경로
+        """
+        print("\n🚀 배치 사이즈 분석 종합 보고서 생성 중...")
+        print("="*60)
+        
+        saved_files = {}
+        
+        # 1. 전체 배치 사이즈 비교
+        try:
+            saved_files['batch_comparison'] = self.plot_batch_size_comparison(all_results)
+        except Exception as e:
+            print(f"❌ 배치 사이즈 비교 그래프 생성 실패: {e}")
+        
+        # 2. AdamABS 히트맵
+        try:
+            saved_files['adamabs_heatmap'] = self.plot_batch_size_heatmap(all_results, 'AdamABS')
+        except Exception as e:
+            print(f"❌ AdamABS 히트맵 생성 실패: {e}")
+        
+        # 3. Adam 히트맵
+        try:
+            saved_files['adam_heatmap'] = self.plot_batch_size_heatmap(all_results, 'Adam')
+        except Exception as e:
+            print(f"❌ Adam 히트맵 생성 실패: {e}")
+        
+        # 4. 각 데이터셋별 수렴 분석
+        for dataset_name in all_results.keys():
+            try:
+                key = f'{dataset_name.lower()}_convergence'
+                saved_files[key] = self.plot_convergence_by_batch_size(all_results, dataset_name)
+            except Exception as e:
+                print(f"❌ {dataset_name} 수렴 분석 생성 실패: {e}")
+        
+        # 5. 종합 리포트 생성
+        try:
+            saved_files['comprehensive_report'] = self.create_comprehensive_report(all_results)
+        except Exception as e:
+            print(f"❌ 종합 리포트 생성 실패: {e}")
+        
+        print(f"\n✅ 배치 사이즈 분석 완료! {len(saved_files)}개 파일 생성")
+        return saved_files
+    
+    def create_comprehensive_report(self, all_results: Dict[str, Any],
+                                  save_name: Optional[str] = None) -> str:
+        """종합 분석 리포트 생성"""
+        
+        fig = plt.figure(figsize=(20, 16))
+        fig.suptitle('Comprehensive Batch Size Analysis Report: Adam vs AdamABS', 
+                    fontsize=20, fontweight='bold', y=0.98)
+        
+        # 그리드 레이아웃 설정 (4x3)
+        gs = fig.add_gridspec(4, 3, hspace=0.3, wspace=0.3)
+        
+        datasets = list(all_results.keys())
+        batch_sizes = [64, 128, 256]
+        optimizers = ['Adam', 'AdamABS']
+        
+        # 1. 전체 성능 비교 (상단 2x3)
+        for dataset_idx, dataset_name in enumerate(datasets):
+            ax = fig.add_subplot(gs[0, dataset_idx])
+            dataset_results = all_results[dataset_name]
+            
+            # 배치 사이즈별 성능 비교
+            for opt_idx, optimizer in enumerate(optimizers):
+                accuracies = []
+                available_batches = []
+                
+                for batch_size in batch_sizes:
+                    batch_key = f"batch_{batch_size}"
+                    if batch_key in dataset_results and optimizer in dataset_results[batch_key]:
+                        acc = dataset_results[batch_key][optimizer].get('best_val_acc', 0)
+                        accuracies.append(acc)
+                        available_batches.append(batch_size)
+                
+                if accuracies:
+                    color = self.colors.get(optimizer, 'gray')
+                    ax.plot(available_batches, accuracies, 
+                           marker='o', linewidth=2, markersize=6,
+                           color=color, label=optimizer, alpha=0.8)
+            
+            ax.set_title(f'{dataset_name}', fontweight='bold')
+            ax.set_xlabel('Batch Size')
+            ax.set_ylabel('Accuracy (%)')
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+            ax.set_xticks(batch_sizes)
+        
+        # 2. 효율성 분석 (중간 행)
+        ax_efficiency = fig.add_subplot(gs[1, :])
+        
+        # 모든 실험의 정확도 vs 시간 산점도
+        for dataset_name, dataset_results in all_results.items():
+            for batch_key, batch_results in dataset_results.items():
+                batch_size = int(batch_key.split('_')[1])
+                for optimizer, results in batch_results.items():
+                    if 'best_val_acc' in results and 'total_training_time' in results:
+                        acc = results['best_val_acc']
+                        time = results['total_training_time'] / 60  # 분 단위
+                        
+                        color = self.colors.get(optimizer, 'gray')
+                        marker_size = 50 + (batch_size - 64) * 2  # 배치 사이즈에 따른 마커 크기
+                        
+                        ax_efficiency.scatter(time, acc, s=marker_size, c=color, alpha=0.7,
+                                           label=f'{optimizer}' if dataset_name == datasets[0] and batch_key == 'batch_64' else "",
+                                           edgecolors='black', linewidth=0.5)
+        
+        ax_efficiency.set_xlabel('Training Time (minutes)')
+        ax_efficiency.set_ylabel('Best Validation Accuracy (%)')
+        ax_efficiency.set_title('Efficiency Analysis: Accuracy vs Training Time\n(Larger markers = Larger batch size)', fontweight='bold')
+        ax_efficiency.legend()
+        ax_efficiency.grid(True, alpha=0.3)
+        
+        # 3. 통계 요약 테이블 (하단)
+        ax_stats = fig.add_subplot(gs[2:, :])
+        ax_stats.axis('off')
+        
+        # 통계 데이터 수집
+        stats_data = []
+        for dataset_name, dataset_results in all_results.items():
+            for batch_key, batch_results in dataset_results.items():
+                batch_size = batch_key.split('_')[1]
+                for optimizer, results in batch_results.items():
+                    if 'best_val_acc' in results:
+                        stats_data.append([
+                            dataset_name,
+                            batch_size,
+                            optimizer,
+                            f"{results['best_val_acc']:.2f}%",
+                            f"{results.get('total_training_time', 0)/60:.1f}min"
+                        ])
+        
+        if stats_data:
+            # 테이블 생성
+            table = ax_stats.table(cellText=stats_data,
+                                 colLabels=['Dataset', 'Batch Size', 'Optimizer', 'Best Accuracy', 'Training Time'],
+                                 cellLoc='center',
+                                 loc='center',
+                                 bbox=[0, 0, 1, 1])
+            
+            table.auto_set_font_size(False)
+            table.set_fontsize(9)
+            table.scale(1, 2)
+            
+            # 헤더 스타일링
+            for i in range(5):
+                table[(0, i)].set_facecolor('#4CAF50')
+                table[(0, i)].set_text_props(weight='bold', color='white')
+            
+            # AdamABS 행 강조
+            for i, row in enumerate(stats_data, 1):
+                if row[2] == 'AdamABS':
+                    for j in range(5):
+                        table[(i, j)].set_facecolor('#E8F5E8')
+        
+        # 파일 저장
+        if save_name is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_name = f'batch_size_comprehensive_report_{timestamp}.png'
+        
+        save_path = os.path.join(self.batch_results_dir, save_name)
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.show()
+        
+        print(f"📋 종합 분석 리포트 저장: {save_path}")
+        return save_path
+
+
 if __name__ == "__main__":
     # 간단한 테스트
     print("ExperimentVisualizer 테스트")

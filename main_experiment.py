@@ -310,6 +310,139 @@ def full_comparison(dataset_type: int = 1):
     return run_experiment(dataset_type=dataset_type)
 
 
+def batch_size_comparison_experiment(dataset_type: int = None, epochs: int = None):
+    """
+    배치 사이즈별 Adam vs AdamABS 비교 실험
+    
+    Args:
+        dataset_type: 특정 데이터셋만 테스트 (None이면 모든 데이터셋)
+        epochs: 에포크 수 (None이면 기본값 사용)
+    
+    Returns:
+        dict: 모든 실험 결과
+    """
+    print("🚀 배치 사이즈별 Adam vs AdamABS 비교 실험")
+    print("=" * 80)
+    
+    # 실험 설정
+    datasets_to_test = [dataset_type] if dataset_type else [1, 2, 3]
+    batch_sizes = [64, 128, 256]
+    optimizers = ['Adam', 'AdamABS']
+    
+    dataset_names = {1: "MNIST", 2: "CIFAR-10", 3: "Fashion-MNIST"}
+    
+    # 전체 실험 수 계산
+    total_experiments = len(datasets_to_test) * len(batch_sizes) * len(optimizers)
+    print(f"📋 실험 계획:")
+    print(f"   데이터셋: {[dataset_names[d] for d in datasets_to_test]}")
+    print(f"   배치 사이즈: {batch_sizes}")
+    print(f"   옵티마이저: {optimizers}")
+    print(f"   총 실험 수: {total_experiments}개")
+    print("=" * 80)
+    
+    # 모든 실험 결과 저장
+    all_results = {}
+    experiment_count = 0
+    
+    start_time = time.time()
+    
+    for dataset_idx, ds_type in enumerate(datasets_to_test):
+        dataset_name = dataset_names[ds_type]
+        print(f"\n🎯 {dataset_name} 데이터셋 실험 시작...")
+        
+        all_results[dataset_name] = {}
+        
+        for batch_idx, batch_size in enumerate(batch_sizes):
+            print(f"\n📦 배치 사이즈 {batch_size} 실험...")
+            
+            batch_key = f"batch_{batch_size}"
+            all_results[dataset_name][batch_key] = {}
+            
+            # 해당 배치 사이즈로 실험 실행
+            try:
+                experiment_results = run_experiment(
+                    dataset_type=ds_type,
+                    epochs=epochs,
+                    batch_size=batch_size,
+                    optimizers_to_test=optimizers,
+                    resume_training=False
+                )
+                
+                if experiment_results:
+                    all_results[dataset_name][batch_key] = experiment_results
+                    experiment_count += len(optimizers)
+                    
+                    # 진행 상황 출력
+                    elapsed_time = time.time() - start_time
+                    progress = experiment_count / total_experiments * 100
+                    print(f"⏱️  진행률: {progress:.1f}% ({experiment_count}/{total_experiments})")
+                    print(f"   경과 시간: {elapsed_time/60:.1f}분")
+                    
+                    if experiment_count < total_experiments:
+                        remaining_time = elapsed_time * (total_experiments - experiment_count) / experiment_count
+                        print(f"   예상 남은 시간: {remaining_time/60:.1f}분")
+                else:
+                    print(f"❌ 배치 사이즈 {batch_size} 실험 실패")
+                    
+            except Exception as e:
+                print(f"❌ 배치 사이즈 {batch_size} 실험 중 오류: {e}")
+                continue
+    
+    total_time = time.time() - start_time
+    
+    # 결과 요약 및 시각화
+    print("\n" + "=" * 80)
+    print("🎉 모든 배치 사이즈 실험 완료!")
+    print("=" * 80)
+    print(f"총 실험 시간: {total_time/3600:.2f}시간 ({total_time/60:.1f}분)")
+    print(f"완료된 실험: {experiment_count}/{total_experiments}개")
+    
+    if experiment_count > 0:
+        # 배치 사이즈 전용 시각화 생성
+        print(f"\n📊 배치 사이즈 비교 시각화 생성 중...")
+        from visualizer import BatchSizeVisualizer
+        
+        try:
+            batch_visualizer = BatchSizeVisualizer('./results')
+            viz_files = batch_visualizer.create_batch_size_analysis(all_results)
+            
+            print(f"\n📁 생성된 시각화 파일:")
+            for viz_type, file_path in viz_files.items():
+                print(f"   {viz_type}: {os.path.basename(file_path)}")
+                
+        except Exception as e:
+            print(f"⚠️  시각화 생성 중 오류: {e}")
+            print("기본 시각화로 대체합니다...")
+            
+            # 기본 시각화 (각 데이터셋별로)
+            from visualizer import ExperimentVisualizer
+            visualizer = ExperimentVisualizer('./results')
+            
+            for dataset_name, dataset_results in all_results.items():
+                for batch_key, batch_results in dataset_results.items():
+                    if batch_results:
+                        batch_size = batch_key.split('_')[1]
+                        save_name = f"{dataset_name.lower()}_batch{batch_size}_comparison"
+                        visualizer.generate_all_visualizations(
+                            batch_results, 
+                            f"{dataset_name} (Batch Size {batch_size})"
+                        )
+    
+    # 최종 요약 출력
+    print(f"\n📈 배치 사이즈별 성능 요약:")
+    for dataset_name, dataset_results in all_results.items():
+        print(f"\n{dataset_name}:")
+        for batch_key, batch_results in dataset_results.items():
+            if batch_results:
+                batch_size = batch_key.split('_')[1]
+                print(f"  배치 사이즈 {batch_size}:")
+                for opt_name, opt_result in batch_results.items():
+                    best_acc = opt_result.get('best_val_acc', 0)
+                    print(f"    {opt_name}: {best_acc:.2f}%")
+    
+    return all_results
+
+
 def interactive_mode():
     """대화형 모드"""
     print("🎯 대화형 실험 모드")
@@ -355,15 +488,16 @@ def interactive_mode():
     print("1. 빠른 테스트 (3 에포크, Adam vs AdamABS)")
     print("2. Adam vs AdamABS 집중 비교")
     print("3. 전체 옵티마이저 비교")
-    print("4. 사용자 정의 설정")
+    print("4. 배치 사이즈 비교 실험 (Adam vs AdamABS, 배치 64/128/256)")
+    print("5. 사용자 정의 설정")
     
     while True:
         try:
-            mode_choice = int(input("모드를 선택하세요 (1-4): "))
-            if mode_choice in [1, 2, 3, 4]:
+            mode_choice = int(input("모드를 선택하세요 (1-5): "))
+            if mode_choice in [1, 2, 3, 4, 5]:
                 break
             else:
-                print("❌ 1, 2, 3, 4 중에서 선택해주세요.")
+                print("❌ 1, 2, 3, 4, 5 중에서 선택해주세요.")
         except ValueError:
             print("❌ 숫자를 입력해주세요.")
     
@@ -379,6 +513,38 @@ def interactive_mode():
     elif mode_choice == 3:
         return run_experiment(dataset_choice, resume_training=resume_training)
     elif mode_choice == 4:
+        # 배치 사이즈 비교 실험
+        print("\n🚀 배치 사이즈 비교 실험 설정:")
+        
+        # 에포크 수 설정 (선택사항)
+        epochs = None
+        epochs_input = input("에포크 수 (기본값 사용하려면 엔터): ").strip()
+        if epochs_input:
+            try:
+                epochs = int(epochs_input)
+            except ValueError:
+                print("❌ 잘못된 입력. 기본값을 사용합니다.")
+        
+        # 전체 데이터셋 vs 선택된 데이터셋
+        all_datasets_input = input("모든 데이터셋에서 실험하시겠습니까? (Y/n): ").strip().lower()
+        target_dataset = None if all_datasets_input in ['', 'y', 'yes', '예'] else dataset_choice
+        
+        if target_dataset:
+            dataset_name = {1: "MNIST", 2: "CIFAR-10", 3: "Fashion-MNIST"}[target_dataset]
+            print(f"선택된 데이터셋: {dataset_name}")
+        else:
+            print("선택된 데이터셋: 모든 데이터셋 (MNIST, CIFAR-10, Fashion-MNIST)")
+        
+        print("배치 사이즈: 64, 128, 256")
+        print("옵티마이저: Adam, AdamABS")
+        
+        confirm = input("\n실험을 시작하시겠습니까? (Y/n): ").strip().lower()
+        if confirm in ['', 'y', 'yes', '예']:
+            return batch_size_comparison_experiment(target_dataset, epochs)
+        else:
+            print("❌ 실험이 취소되었습니다.")
+            return None
+    elif mode_choice == 5:
         # 사용자 정의 설정
         print("\n사용자 정의 설정:")
         
@@ -412,6 +578,8 @@ def main():
   python main_experiment.py --dataset 1        # MNIST 전체 비교
   python main_experiment.py --dataset 2 --quick # CIFAR-10 빠른 테스트
   python main_experiment.py --dataset 3 --epochs 15 --lr 0.001
+  python main_experiment.py --batch-size-comparison --dataset 1 # MNIST 배치 사이즈 비교
+  python main_experiment.py --batch-size-comparison # 모든 데이터셋 배치 사이즈 비교
         """
     )
     
@@ -432,6 +600,8 @@ def main():
                        help='빠른 테스트 모드 (3 에포크)')
     parser.add_argument('--adam-vs-adamabs', action='store_true',
                        help='Adam vs AdamABS만 비교')
+    parser.add_argument('--batch-size-comparison', action='store_true',
+                       help='배치 사이즈별 Adam vs AdamABS 비교 (64, 128, 256)')
     parser.add_argument('--resume', action='store_true',
                        help='기존 체크포인트에서 훈련 재개')
     parser.add_argument('--list-checkpoints', action='store_true',
@@ -449,7 +619,11 @@ def main():
     if len(sys.argv) == 1:
         return interactive_mode()
     
-    # 데이터셋이 지정되지 않으면 에러
+    # 배치 사이즈 비교 실험은 데이터셋 선택이 선택사항
+    if args.batch_size_comparison:
+        return batch_size_comparison_experiment(args.dataset, args.epochs)
+    
+    # 다른 실험들은 데이터셋이 필수
     if args.dataset is None:
         print("❌ --dataset 옵션을 지정해주세요. (1: MNIST, 2: CIFAR-10, 3: Fashion-MNIST)")
         return None
