@@ -26,6 +26,54 @@ plt.rcParams['axes.unicode_minus'] = False
 plt.style.use('seaborn-v0_8')
 sns.set_palette("husl")
 
+# 시각화 모드 설정 (main_experiment.py에서 제어)
+_SHOW_PLOTS = True  # 기본값: 그래프 창 표시
+_SAVE_PLOTS = True  # 기본값: 파일 저장
+
+def set_visualization_mode(show_plots: bool = True, save_plots: bool = True):
+    """
+    시각화 모드 설정
+    
+    Args:
+        show_plots: True면 그래프 창 표시, False면 자동 저장만
+        save_plots: True면 파일로 저장, False면 저장 안함
+    """
+    global _SHOW_PLOTS, _SAVE_PLOTS
+    _SHOW_PLOTS = show_plots
+    _SAVE_PLOTS = save_plots
+    
+    if show_plots:
+        plt.ion()   # 인터랙티브 모드 켜기
+        print("📊 시각화 모드: 그래프 창 표시 (X 버튼으로 닫아야 진행)")
+    else:
+        plt.ioff()  # 인터랙티브 모드 끄기
+        print("📊 시각화 모드: 자동 저장 (창 표시 안함)")
+    
+    if save_plots:
+        print("💾 저장 모드: 파일로 저장")
+    else:
+        print("🚫 저장 모드: 저장 안함")
+
+
+def _handle_plot_display_and_save(save_path: Optional[str], message: str):
+    """
+    플롯 표시 및 저장을 전역 설정에 따라 처리
+    
+    Args:
+        save_path: 저장할 파일 경로 (None이면 저장 안함)
+        message: 저장 완료 메시지
+    """
+    global _SHOW_PLOTS, _SAVE_PLOTS
+    
+    if _SAVE_PLOTS and save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(message)
+    
+    if _SHOW_PLOTS:
+        plt.show()
+    else:
+        plt.close()  # 메모리 절약
+
 
 class ExperimentVisualizer:
     """실험 결과 시각화 클래스"""
@@ -49,7 +97,7 @@ class ExperimentVisualizer:
         print(f"   결과 저장 경로: {os.path.abspath(results_dir)}")
     
     def plot_training_curves(self, experiment_results: Dict[str, Any], 
-                           dataset_name: str, save_name: Optional[str] = None) -> str:
+                           dataset_name: str, save_name: Optional[str] = None) -> Optional[str]:
         """
         훈련 곡선 시각화
         
@@ -155,11 +203,9 @@ class ExperimentVisualizer:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             save_name = f'{dataset_name.lower()}_training_curves_{timestamp}.png'
         
-        save_path = os.path.join(self.results_dir, save_name)
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        plt.show()
+        save_path = os.path.join(self.results_dir, save_name) if _SAVE_PLOTS else None
+        _handle_plot_display_and_save(save_path, f"📈 훈련 곡선 저장: {save_path}")
         
-        print(f"📈 훈련 곡선 저장: {save_path}")
         return save_path
     
     def plot_performance_comparison(self, experiment_results: Dict[str, Any],
@@ -263,7 +309,7 @@ class ExperimentVisualizer:
         
         save_path = os.path.join(self.results_dir, save_name)
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        plt.show()
+        plt.close()
         
         print(f"📊 성능 비교 차트 저장: {save_path}")
         return save_path
@@ -374,7 +420,7 @@ class ExperimentVisualizer:
         
         save_path = os.path.join(self.results_dir, save_name)
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        plt.show()
+        plt.close()
         
         print(f"🔍 옵티마이저 분석 저장: {save_path}")
         return save_path
@@ -544,7 +590,7 @@ class ExperimentVisualizer:
         
         save_path = os.path.join(self.results_dir, save_name)
         plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
-        plt.show()
+        plt.close()
         
         print(f"📋 종합 보고서 저장: {save_path}")
         return save_path
@@ -810,7 +856,7 @@ class AdamABSAnalyzer:
         save_path = os.path.join(self.results_dir, 
                                f'{dataset_name.lower()}_adamabs_efficiency_{timestamp}.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        plt.show()
+        plt.close()
         
         print(f"⚡ AdamABS 효율성 분석 저장: {save_path}")
         return save_path
@@ -932,7 +978,7 @@ class AdamABSAnalyzer:
         save_path = os.path.join(self.results_dir, 
                                f'{dataset_name.lower()}_convergence_analysis_{timestamp}.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        plt.show()
+        plt.close()
         
         print(f"📈 수렴성 분석 저장: {save_path}")
         return save_path
@@ -1072,7 +1118,7 @@ class AdamABSAnalyzer:
         save_path = os.path.join(self.results_dir, 
                                f'{dataset_name.lower()}_paper_figure_{timestamp}.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
-        plt.show()
+        plt.close()
         
         print(f"📄 논문용 종합 그림 저장: {save_path}")
         return save_path
@@ -1168,7 +1214,7 @@ class BatchSizeVisualizer:
         
         save_path = os.path.join(self.batch_results_dir, save_name)
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        plt.show()
+        plt.close()
         
         print(f"📊 배치 사이즈 비교 그래프 저장: {save_path}")
         return save_path
@@ -1239,7 +1285,7 @@ class BatchSizeVisualizer:
         
         save_path = os.path.join(self.batch_results_dir, save_name)
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        plt.show()
+        plt.close()
         
         print(f"🔥 {optimizer} 배치 사이즈 히트맵 저장: {save_path}")
         return save_path
@@ -1302,7 +1348,7 @@ class BatchSizeVisualizer:
         
         save_path = os.path.join(self.batch_results_dir, save_name)
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        plt.show()
+        plt.close()
         
         print(f"📈 {dataset_name} 수렴 분석 저장: {save_path}")
         return save_path
@@ -1476,7 +1522,7 @@ class BatchSizeVisualizer:
         
         save_path = os.path.join(self.batch_results_dir, save_name)
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        plt.show()
+        plt.close()
         
         print(f"📋 종합 분석 리포트 저장: {save_path}")
         return save_path

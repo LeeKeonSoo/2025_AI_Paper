@@ -11,6 +11,17 @@ Author: AI Research
 Date: 2025
 """
 
+# =============================================================================
+# 시각화 설정
+# =============================================================================
+SHOW_PLOTS = False  # True: 그래프 창 표시, False: 자동 저장만
+SAVE_PLOTS = True   # True: 파일로 저장, False: 저장 안함
+
+# 시각화 모드 설명:
+# SHOW_PLOTS = True:  그래프가 화면에 나타나고 X 버튼을 눌러야 다음 진행
+# SHOW_PLOTS = False: 그래프가 자동으로 저장되고 바로 다음 진행
+# =============================================================================
+
 import torch
 import torch.nn as nn
 import torch.optim.lr_scheduler as lr_scheduler
@@ -25,8 +36,11 @@ from optimizers import create_optimizer, CustomAdam, CustomAdamW, CustomAdamABS
 from data_loaders import get_dataset_loader, print_dataset_info
 from models import create_model, print_model_summary, get_model_info
 from trainer import OptimizerExperiment, create_standard_scheduler
-from visualizer import ExperimentVisualizer
+from visualizer import ExperimentVisualizer, set_visualization_mode
 from weight_manager import WeightManager, ContinuousTrainer
+
+# 시각화 모드 설정 적용
+set_visualization_mode(show_plots=SHOW_PLOTS, save_plots=SAVE_PLOTS)
 
 
 def setup_experiment_config(dataset_type: int, epochs: int = None, lr: float = None) -> dict:
@@ -415,7 +429,6 @@ def batch_size_comparison_experiment(dataset_type: int = None, epochs: int = Non
             print("기본 시각화로 대체합니다...")
             
             # 기본 시각화 (각 데이터셋별로)
-            from visualizer import ExperimentVisualizer
             visualizer = ExperimentVisualizer('./results')
             
             for dataset_name, dataset_results in all_results.items():
