@@ -30,13 +30,14 @@ sns.set_palette("husl")
 _SHOW_PLOTS = True  # 기본값: 그래프 창 표시
 _SAVE_PLOTS = True  # 기본값: 파일 저장
 
-def set_visualization_mode(show_plots: bool = True, save_plots: bool = True):
+def set_visualization_mode(show_plots: bool = True, save_plots: bool = True, show_message: bool = False):
     """
     시각화 모드 설정
     
     Args:
         show_plots: True면 그래프 창 표시, False면 자동 저장만
         save_plots: True면 파일로 저장, False면 저장 안함
+        show_message: True면 설정 메시지 표시, False면 조용히 설정
     """
     global _SHOW_PLOTS, _SAVE_PLOTS
     _SHOW_PLOTS = show_plots
@@ -44,15 +45,18 @@ def set_visualization_mode(show_plots: bool = True, save_plots: bool = True):
     
     if show_plots:
         plt.ion()   # 인터랙티브 모드 켜기
-        print("📊 시각화 모드: 그래프 창 표시 (X 버튼으로 닫아야 진행)")
+        if show_message:
+            print("📊 시각화 모드: 그래프 창 표시 (X 버튼으로 닫아야 진행)")
     else:
         plt.ioff()  # 인터랙티브 모드 끄기
-        print("📊 시각화 모드: 자동 저장 (창 표시 안함)")
+        if show_message:
+            print("📊 시각화 모드: 자동 저장 (창 표시 안함)")
     
-    if save_plots:
-        print("💾 저장 모드: 파일로 저장")
-    else:
-        print("🚫 저장 모드: 저장 안함")
+    if show_message:
+        if save_plots:
+            print("💾 저장 모드: 파일로 저장")
+        else:
+            print("🚫 저장 모드: 저장 안함")
 
 
 def _handle_plot_display_and_save(save_path: Optional[str], message: str):

@@ -39,8 +39,8 @@ from trainer import OptimizerExperiment, create_standard_scheduler
 from visualizer import ExperimentVisualizer, set_visualization_mode
 from weight_manager import WeightManager, ContinuousTrainer
 
-# 시각화 모드 설정 적용
-set_visualization_mode(show_plots=SHOW_PLOTS, save_plots=SAVE_PLOTS)
+# 시각화 모드 설정 적용 (조용히)
+set_visualization_mode(show_plots=SHOW_PLOTS, save_plots=SAVE_PLOTS, show_message=False)
 
 
 def setup_experiment_config(dataset_type: int, epochs: int = None, lr: float = None) -> dict:
@@ -169,6 +169,9 @@ def run_experiment(dataset_type: int, epochs: int = None, lr: float = None,
     print("=" * 100)
     print(f"🚀 {dataset_name} 옵티마이저 비교 실험 시작")
     print("=" * 100)
+    
+    # 시각화 모드 안내 (실험 시작 시에만)
+    set_visualization_mode(show_plots=SHOW_PLOTS, save_plots=SAVE_PLOTS, show_message=True)
     print(f"📋 실험 설정:")
     print(f"   데이터셋: {dataset_name}")
     print(f"   에포크: {config['epochs']}")
@@ -337,6 +340,9 @@ def batch_size_comparison_experiment(dataset_type: int = None, epochs: int = Non
     """
     print("🚀 배치 사이즈별 Adam vs AdamABS 비교 실험")
     print("=" * 80)
+    
+    # 시각화 모드 안내 (실험 시작 시에만)
+    set_visualization_mode(show_plots=SHOW_PLOTS, save_plots=SAVE_PLOTS, show_message=True)
     
     # 실험 설정
     datasets_to_test = [dataset_type] if dataset_type else [1, 2, 3]
