@@ -5,7 +5,7 @@ MNIST, CIFAR-10, Tiny ImageNet 지원
 Dataset Selection:
 1 - MNIST
 2 - CIFAR-10  
-3 - Tiny ImageNet
+3 - Fashion-MNIST
 
 Author: AI Research
 Date: 2025
@@ -14,98 +14,11 @@ Date: 2025
 import torch
 import torchvision
 import torchvision.transforms as transforms
-from torch.utils.data import DataLoader, random_split, Dataset
-import os
-from PIL import Image
+from torch.utils.data import DataLoader, random_split
 from typing import Tuple, Optional, Dict, Any
 
 
-class TinyImageNetDataset(Dataset):
-    """Tiny ImageNet 데이터셋 클래스"""
-    
-    def __init__(self, root_dir: str, split: str = 'train', transform=None):
-        """
-        Args:
-            root_dir: Tiny ImageNet 루트 디렉토리 경로
-            split: 'train' 또는 'val'
-            transform: 이미지 변환
-        """
-        self.root_dir = root_dir
-        self.split = split
-        self.transform = transform
-        self.data = []
-        self.targets = []
-        self.class_to_idx = {}
-        
-        if split == 'train':
-            self._load_train_data()
-        elif split == 'val':
-            self._load_val_data()
-        else:
-            raise ValueError(f"Unsupported split: {split}")
-    
-    def _load_train_data(self):
-        """훈련 데이터 로드"""
-        train_dir = os.path.join(self.root_dir, 'train')
-        if not os.path.exists(train_dir):
-            raise FileNotFoundError(f"Tiny ImageNet train directory not found: {train_dir}")
-        
-        class_names = sorted(os.listdir(train_dir))
-        self.class_to_idx = {name: idx for idx, name in enumerate(class_names)}
-        
-        for class_idx, class_name in enumerate(class_names):
-            class_dir = os.path.join(train_dir, class_name, 'images')
-            if os.path.exists(class_dir):
-                for img_name in os.listdir(class_dir):
-                    if img_name.endswith('.JPEG'):
-                        img_path = os.path.join(class_dir, img_name)
-                        self.data.append(img_path)
-                        self.targets.append(class_idx)
-    
-    def _load_val_data(self):
-        """검증 데이터 로드"""
-        val_dir = os.path.join(self.root_dir, 'val')
-        val_annotations = os.path.join(val_dir, 'val_annotations.txt')
-        
-        if not os.path.exists(val_annotations):
-            raise FileNotFoundError(f"Tiny ImageNet val annotations not found: {val_annotations}")
-        
-        # 클래스 이름을 인덱스로 매핑 (train 폴더 기반)
-        train_dir = os.path.join(self.root_dir, 'train')
-        class_names = sorted(os.listdir(train_dir))
-        self.class_to_idx = {name: idx for idx, name in enumerate(class_names)}
-        
-        with open(val_annotations, 'r') as f:
-            for line in f:
-                parts = line.strip().split('\t')
-                if len(parts) >= 2:
-                    img_name = parts[0]
-                    class_name = parts[1]
-                    
-                    img_path = os.path.join(val_dir, 'images', img_name)
-                    if os.path.exists(img_path) and class_name in self.class_to_idx:
-                        self.data.append(img_path)
-                        self.targets.append(self.class_to_idx[class_name])
-    
-    def __len__(self):
-        return len(self.data)
-    
-    def __getitem__(self, idx):
-        img_path = self.data[idx]
-        target = self.targets[idx]
-        
-        # 이미지 로드
-        try:
-            image = Image.open(img_path).convert('RGB')
-        except Exception as e:
-            print(f"Error loading image {img_path}: {e}")
-            # 대체 이미지 생성 (검은색 64x64)
-            image = Image.new('RGB', (64, 64), (0, 0, 0))
-        
-        if self.transform:
-            image = self.transform(image)
-        
-        return image, target
+# Fashion-MNIST uses torchvision dataset, no custom class needed
 
 
 class DatasetLoader:
@@ -115,7 +28,7 @@ class DatasetLoader:
                  num_workers: int = 4, validation_split: float = 0.1):
         """
         Args:
-            dataset_type: 1(MNIST), 2(CIFAR-10), 3(Tiny ImageNet)
+            dataset_type: 1(MNIST), 2(CIFAR-10), 3(Fashion-MNIST)
             data_dir: 데이터 디렉토리 경로
             batch_size: 배치 크기
             num_workers: 데이터 로더 워커 수
@@ -141,12 +54,6 @@ class DatasetLoader:
         print(f"   테스트 샘플: {len(self.test_loader.dataset):,}개")
         print(f"   배치 크기: {self.batch_size}")
         
-        # Tiny ImageNet의 경우 원본 데이터셋 구조 사용 안내
-        if self.dataset_type == 3:
-            print(f"   📋 Tiny ImageNet: 원본 데이터셋 구조 사용")
-            print(f"      - Train: 원본 train 폴더 (100,000개)")
-            print(f"      - Val: 원본 val 폴더 (10,000개)")
-            print(f"      - Test: 원본 val 폴더와 동일")
     
     def _get_dataset_info(self) -> Dict[str, Any]:
         """데이터셋 정보 반환"""
@@ -168,14 +75,14 @@ class DatasetLoader:
                 'std': (0.2023, 0.1994, 0.2010),
                 'channels': 3
             }
-        elif self.dataset_type == 3:  # Tiny ImageNet
+        elif self.dataset_type == 3:  # Fashion-MNIST
             return {
-                'name': 'Tiny ImageNet',
-                'num_classes': 200,
-                'image_size': (3, 64, 64),  # 원본 64x64 해상도 유지
-                'mean': (0.485, 0.456, 0.406),  # ImageNet 표준
-                'std': (0.229, 0.224, 0.225),
-                'channels': 3
+                'name': 'Fashion-MNIST',
+                'num_classes': 10,
+                'image_size': (1, 28, 28),
+                'mean': (0.2860,),
+                'std': (0.3530,),
+                'channels': 1
             }
         else:
             raise ValueError(f"지원하지 않는 데이터셋 타입: {self.dataset_type}")
@@ -211,17 +118,13 @@ class DatasetLoader:
                 transforms.Normalize(info['mean'], info['std'])
             ])
             
-        elif self.dataset_type == 3:  # Tiny ImageNet
-            # 과적합 방지를 위한 강화된 데이터 증강
+        elif self.dataset_type == 3:  # Fashion-MNIST
             train_transform = transforms.Compose([
+                transforms.RandomRotation(10),
+                transforms.RandomAffine(degrees=0, translate=(0.1, 0.1)),
                 transforms.RandomHorizontalFlip(p=0.5),
-                transforms.RandomCrop(64, padding=8),  # 더 강한 크롭 (4→8)
-                transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1),  # 색상 변화
-                transforms.RandomRotation(degrees=15),  # 회전 추가
-                transforms.RandomApply([transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0))], p=0.2),  # 블러
                 transforms.ToTensor(),
-                transforms.Normalize(info['mean'], info['std']),
-                transforms.RandomErasing(p=0.1, scale=(0.02, 0.33), ratio=(0.3, 3.3))  # CutOut 효과
+                transforms.Normalize(info['mean'], info['std'])
             ])
             
             test_transform = transforms.Compose([
@@ -239,8 +142,8 @@ class DatasetLoader:
             return self._create_mnist_loaders(train_transform, test_transform)
         elif self.dataset_type == 2:  # CIFAR-10
             return self._create_cifar10_loaders(train_transform, test_transform)
-        elif self.dataset_type == 3:  # Tiny ImageNet
-            return self._create_tiny_imagenet_loaders(train_transform, test_transform)
+        elif self.dataset_type == 3:  # Fashion-MNIST
+            return self._create_fashion_mnist_loaders(train_transform, test_transform)
     
     def _create_mnist_loaders(self, train_transform, test_transform) -> Tuple[DataLoader, DataLoader, DataLoader]:
         """MNIST 데이터 로더 생성"""
@@ -318,28 +221,25 @@ class DatasetLoader:
         
         return train_loader, val_loader, test_loader
     
-    def _create_tiny_imagenet_loaders(self, train_transform, test_transform) -> Tuple[DataLoader, DataLoader, DataLoader]:
-        """Tiny ImageNet 데이터 로더 생성 - 원본 데이터셋 구조 그대로 사용"""
-        tiny_imagenet_dir = os.path.join(self.data_dir, 'tiny-imagenet-200')
-        
-        if not os.path.exists(tiny_imagenet_dir):
-            raise FileNotFoundError(
-                f"Tiny ImageNet 데이터를 찾을 수 없습니다: {tiny_imagenet_dir}\n"
-                f"다음 링크에서 다운로드하세요: http://cs231n.stanford.edu/tiny-imagenet-200.zip\n"
-                f"압축 해제 후 {self.data_dir} 폴더에 넣어주세요."
-            )
-        
-        # 원본 데이터셋 구조 그대로 사용
-        train_dataset = TinyImageNetDataset(
-            root_dir=tiny_imagenet_dir, split='train', transform=train_transform
+    def _create_fashion_mnist_loaders(self, train_transform, test_transform) -> Tuple[DataLoader, DataLoader, DataLoader]:
+        """Fashion-MNIST 데이터 로더 생성"""
+        # 전체 훈련 데이터셋 로드
+        full_train_dataset = torchvision.datasets.FashionMNIST(
+            root=self.data_dir, train=True, download=True, transform=train_transform
         )
         
-        val_dataset = TinyImageNetDataset(
-            root_dir=tiny_imagenet_dir, split='val', transform=test_transform
+        # 테스트 데이터셋 로드
+        test_dataset = torchvision.datasets.FashionMNIST(
+            root=self.data_dir, train=False, download=True, transform=test_transform
         )
         
-        # 테스트 데이터는 검증 데이터와 동일 (라벨이 있는 유일한 테스트 세트)
-        test_dataset = val_dataset
+        # 훈련/검증 데이터 분할
+        train_size = int((1 - self.validation_split) * len(full_train_dataset))
+        val_size = len(full_train_dataset) - train_size
+        train_dataset, val_dataset = random_split(
+            full_train_dataset, [train_size, val_size],
+            generator=torch.Generator().manual_seed(42)
+        )
         
         # 데이터 로더 생성
         train_loader = DataLoader(
@@ -347,13 +247,11 @@ class DatasetLoader:
             num_workers=self.num_workers, pin_memory=torch.cuda.is_available()
         )
         
-        # 검증 데이터는 원본 val 폴더 사용
         val_loader = DataLoader(
             val_dataset, batch_size=self.batch_size, shuffle=False,
             num_workers=self.num_workers, pin_memory=torch.cuda.is_available()
         )
         
-        # 테스트 데이터는 검증 데이터와 동일
         test_loader = DataLoader(
             test_dataset, batch_size=self.batch_size, shuffle=False,
             num_workers=self.num_workers, pin_memory=torch.cuda.is_available()
@@ -372,9 +270,9 @@ class DatasetLoader:
         elif self.dataset_type == 2:  # CIFAR-10
             return ['airplane', 'automobile', 'bird', 'cat', 'deer', 
                    'dog', 'frog', 'horse', 'ship', 'truck']
-        elif self.dataset_type == 3:  # Tiny ImageNet
-            # Tiny ImageNet은 WordNet ID를 사용하므로 간단히 인덱스 반환
-            return [f'class_{i:03d}' for i in range(200)]
+        elif self.dataset_type == 3:  # Fashion-MNIST
+            return ['T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat',
+                   'Sandal', 'Shirt', 'Sneaker', 'Bag', 'Ankle boot']
     
     def get_sample_batch(self):
         """샘플 배치 반환 (시각화나 디버깅용)"""
@@ -395,7 +293,7 @@ def get_dataset_loader(dataset_type: int, **kwargs) -> DatasetLoader:
         DatasetLoader: 구성된 데이터셋 로더
     """
     if dataset_type not in [1, 2, 3]:
-        raise ValueError(f"지원하지 않는 데이터셋 타입: {dataset_type}. 1(MNIST), 2(CIFAR-10), 3(Tiny ImageNet) 중 선택하세요.")
+        raise ValueError(f"지원하지 않는 데이터셋 타입: {dataset_type}. 1(MNIST), 2(CIFAR-10), 3(Fashion-MNIST) 중 선택하세요.")
     
     return DatasetLoader(dataset_type=dataset_type, **kwargs)
 
@@ -419,18 +317,18 @@ def print_dataset_info():
     print("   - 훈련 샘플: 50,000개")
     print("   - 테스트 샘플: 10,000개")
     
-    print("\n3. Tiny ImageNet")
-    print("   - ImageNet 축소 버전")
-    print("   - 이미지 크기: 64x64 (컬러) → 224x224로 리사이즈")
-    print("   - 클래스 수: 200개")
-    print("   - 훈련 샘플: 100,000개")
-    print("   - 검증 샘플: 10,000개")
-    print("   - 다운로드: http://cs231n.stanford.edu/tiny-imagenet-200.zip")
+    print("\n3. Fashion-MNIST")
+    print("   - 패션 아이템 분류")
+    print("   - 이미지 크기: 28x28 (흑백)")
+    print("   - 클래스 수: 10개")
+    print("   - 훈련 샘플: 60,000개")
+    print("   - 테스트 샘플: 10,000개")
+    print("   - 자동 다운로드됨")
     
     print("\n사용법:")
     print("   loader = get_dataset_loader(dataset_type=1)  # MNIST")
     print("   loader = get_dataset_loader(dataset_type=2)  # CIFAR-10")
-    print("   loader = get_dataset_loader(dataset_type=3)  # Tiny ImageNet")
+    print("   loader = get_dataset_loader(dataset_type=3)  # Fashion-MNIST")
     print("=" * 60)
 
 
@@ -442,7 +340,7 @@ if __name__ == "__main__":
     print("\n데이터셋 로더 테스트")
     print("=" * 60)
     
-    for dataset_type in [1, 2]:  # MNIST, CIFAR-10만 테스트 (Tiny ImageNet은 데이터 필요)
+    for dataset_type in [1, 2, 3]:  # MNIST, CIFAR-10, Fashion-MNIST 모두 테스트
         try:
             print(f"\n{dataset_type} 번 데이터셋 테스트 중...")
             loader = get_dataset_loader(
@@ -461,17 +359,16 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"   ❌ 실패: {e}")
     
-    # Tiny ImageNet 테스트 (파일이 있는 경우만)
+    # Fashion-MNIST 테스트
     try:
-        print(f"\n3번 데이터셋 (Tiny ImageNet) 테스트 중...")
+        print(f"\n3번 데이터셋 (Fashion-MNIST) 테스트 중...")
         loader = get_dataset_loader(dataset_type=3, batch_size=32, num_workers=2)
         images, labels = loader.get_sample_batch()
         print(f"   샘플 배치 크기: {images.shape}")
-        print(f"   ✅ Tiny ImageNet 성공!")
-    except FileNotFoundError as e:
-        print(f"   ⚠️  Tiny ImageNet 데이터 없음 (정상)")
-        print(f"   {e}")
+        print(f"   라벨 크기: {labels.shape}")
+        print(f"   데이터 타입: {images.dtype}")
+        print(f"   ✅ Fashion-MNIST 성공!")
     except Exception as e:
-        print(f"   ❌ Tiny ImageNet 실패: {e}")
+        print(f"   ❌ Fashion-MNIST 실패: {e}")
     
     print("\n✅ 데이터셋 로더 테스트 완료!")

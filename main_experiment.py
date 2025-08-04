@@ -5,7 +5,7 @@ Adam, AdamW, AdamABS 옵티마이저 비교 실험
 데이터셋 선택:
 1 - MNIST
 2 - CIFAR-10  
-3 - Tiny ImageNet
+3 - Fashion-MNIST
 
 Author: AI Research
 Date: 2025
@@ -34,7 +34,7 @@ def setup_experiment_config(dataset_type: int, epochs: int = None, lr: float = N
     데이터셋별 기본 실험 설정
     
     Args:
-        dataset_type: 1(MNIST), 2(CIFAR-10), 3(Tiny ImageNet)
+        dataset_type: 1(MNIST), 2(CIFAR-10), 3(Fashion-MNIST)
         epochs: 사용자 지정 에포크 수 (None이면 기본값 사용)
         lr: 사용자 지정 학습률 (None이면 기본값 사용)
     
@@ -59,12 +59,12 @@ def setup_experiment_config(dataset_type: int, epochs: int = None, lr: float = N
             'model_type': 'default',
             'scheduler_type': 'cosine'
         },
-        3: {  # Tiny ImageNet - 과적합 방지 강화 설정 (ResNet)
-            'epochs': 50,         # 더 긴 학습으로 일반화 성능 향상
-            'lr': 0.0005,         # 더 보수적인 학습률 (0.001 → 0.0005)
-            'weight_decay': 5e-4, # 더 강한 L2 정규화 (1e-4 → 5e-4)
-            'batch_size': 128,    # 유지
-            'model_type': 'default',  # ResNet-18 사용
+        3: {  # Fashion-MNIST
+            'epochs': 15,
+            'lr': 0.001,
+            'weight_decay': 1e-4,
+            'batch_size': 128,
+            'model_type': 'default',
             'scheduler_type': 'cosine'
         }
     }
@@ -129,7 +129,7 @@ def run_experiment(dataset_type: int, epochs: int = None, lr: float = None,
     메인 실험 실행
     
     Args:
-        dataset_type: 1(MNIST), 2(CIFAR-10), 3(Tiny ImageNet)
+        dataset_type: 1(MNIST), 2(CIFAR-10), 3(Fashion-MNIST)
         epochs: 훈련 에포크 수
         lr: 학습률
         batch_size: 배치 크기
@@ -149,7 +149,7 @@ def run_experiment(dataset_type: int, epochs: int = None, lr: float = None,
         config['model_type'] = model_type
     
     # 데이터셋 이름 매핑
-    dataset_names = {1: "MNIST", 2: "CIFAR-10", 3: "Tiny ImageNet"}
+    dataset_names = {1: "MNIST", 2: "CIFAR-10", 3: "Fashion-MNIST"}
     dataset_name = dataset_names[dataset_type]
     
     print("=" * 100)
@@ -275,7 +275,7 @@ def quick_test(dataset_type: int = 1):
     빠른 테스트 실행 (적은 에포크로)
     
     Args:
-        dataset_type: 1(MNIST), 2(CIFAR-10), 3(Tiny ImageNet)
+        dataset_type: 1(MNIST), 2(CIFAR-10), 3(Fashion-MNIST)
     """
     print("⚡ 빠른 테스트 모드")
     return run_experiment(
@@ -290,7 +290,7 @@ def compare_adam_vs_adamabs(dataset_type: int = 1):
     Adam vs AdamABS 집중 비교
     
     Args:
-        dataset_type: 1(MNIST), 2(CIFAR-10), 3(Tiny ImageNet)
+        dataset_type: 1(MNIST), 2(CIFAR-10), 3(Fashion-MNIST)
     """
     print("🔬 Adam vs AdamABS 집중 비교")
     return run_experiment(
@@ -304,7 +304,7 @@ def full_comparison(dataset_type: int = 1):
     모든 옵티마이저 전체 비교
     
     Args:
-        dataset_type: 1(MNIST), 2(CIFAR-10), 3(Tiny ImageNet)
+        dataset_type: 1(MNIST), 2(CIFAR-10), 3(Fashion-MNIST)
     """
     print("🔬 전체 옵티마이저 비교")
     return run_experiment(dataset_type=dataset_type)
@@ -411,12 +411,12 @@ def main():
   python main_experiment.py                     # 대화형 모드
   python main_experiment.py --dataset 1        # MNIST 전체 비교
   python main_experiment.py --dataset 2 --quick # CIFAR-10 빠른 테스트
-  python main_experiment.py --dataset 3 --epochs 20 --lr 0.0001
+  python main_experiment.py --dataset 3 --epochs 15 --lr 0.001
         """
     )
     
     parser.add_argument('--dataset', type=int, choices=[1, 2, 3],
-                       help='데이터셋 선택: 1(MNIST), 2(CIFAR-10), 3(Tiny ImageNet)')
+                       help='데이터셋 선택: 1(MNIST), 2(CIFAR-10), 3(Fashion-MNIST)')
     parser.add_argument('--epochs', type=int,
                        help='훈련 에포크 수')
     parser.add_argument('--lr', type=float,
@@ -451,7 +451,7 @@ def main():
     
     # 데이터셋이 지정되지 않으면 에러
     if args.dataset is None:
-        print("❌ --dataset 옵션을 지정해주세요. (1: MNIST, 2: CIFAR-10, 3: Tiny ImageNet)")
+        print("❌ --dataset 옵션을 지정해주세요. (1: MNIST, 2: CIFAR-10, 3: Fashion-MNIST)")
         return None
     
     # 실험 모드에 따른 실행

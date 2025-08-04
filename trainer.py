@@ -382,7 +382,7 @@ class OptimizerExperiment:
                  enable_checkpoints: bool = True, weights_dir: str = "./weights"):
         """
         Args:
-            dataset_type: 1(MNIST), 2(CIFAR-10), 3(Tiny ImageNet)
+            dataset_type: 1(MNIST), 2(CIFAR-10), 3(Fashion-MNIST)
             model_type: 모델 타입
             enable_checkpoints: 체크포인트 저장 활성화 여부
             weights_dir: 체크포인트 저장 디렉토리
@@ -393,7 +393,7 @@ class OptimizerExperiment:
         self.enable_checkpoints = enable_checkpoints
         
         # 데이터셋 이름 매핑
-        self.dataset_names = {1: "MNIST", 2: "CIFAR-10", 3: "Tiny ImageNet"}
+        self.dataset_names = {1: "MNIST", 2: "CIFAR-10", 3: "Fashion-MNIST"}
         
         # WeightManager 초기화
         self.weight_manager = WeightManager(weights_dir) if enable_checkpoints else None
@@ -443,14 +443,11 @@ class OptimizerExperiment:
                 start_epoch, trainer.training_history = resume_result
                 trainer.best_val_acc = max(trainer.training_history.get('val_acc', [0]))
         
-        # 손실 함수 (Tiny ImageNet의 경우 Label Smoothing 적용)
-        if self.dataset_type == 3:  # Tiny ImageNet
-            criterion = create_standard_criterion(label_smoothing=0.1)
-        else:
-            criterion = create_standard_criterion()
+        # 손실 함수
+        criterion = create_standard_criterion()
         
-        # 훈련 실행 (Tiny ImageNet에서는 조기 종료 사용)
-        early_stopping_patience = 15 if self.dataset_type == 3 else None
+        # 훈련 실행
+        early_stopping_patience = None
         
         results = trainer.train_model(
             train_loader=train_loader,
