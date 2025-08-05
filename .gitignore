@@ -26,6 +26,7 @@ checkpoints/
 *.jpg
 *.jpeg
 *.pdf
+*.json
 
 # Python 관련
 __pycache__/
