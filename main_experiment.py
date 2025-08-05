@@ -30,6 +30,7 @@ import sys
 import time
 from datetime import datetime
 import os
+from typing import Optional
 
 # 우리가 만든 모듈들 import
 from optimizers import create_optimizer, CustomAdam, CustomAdamW, CustomAdamABS
@@ -94,13 +95,14 @@ def setup_experiment_config(dataset_type: int, epochs: int = None, lr: float = N
     return config
 
 
-def create_optimizers_config(base_lr: float, weight_decay: float) -> dict:
+def create_optimizers_config(base_lr: float, weight_decay: float, eps: float = 1e-8) -> dict:
     """
     옵티마이저 설정 생성
     
     Args:
         base_lr: 기본 학습률
         weight_decay: 가중치 감소
+        eps: epsilon 값
     
     Returns:
         dict: 옵티마이저 설정 딕셔너리
@@ -111,7 +113,7 @@ def create_optimizers_config(base_lr: float, weight_decay: float) -> dict:
             'params': {
                 'lr': base_lr,
                 'betas': (0.9, 0.999),
-                'eps': 1e-8,
+                'eps': eps,
                 'weight_decay': weight_decay
             }
         },
@@ -120,7 +122,7 @@ def create_optimizers_config(base_lr: float, weight_decay: float) -> dict:
             'params': {
                 'lr': base_lr,
                 'betas': (0.9, 0.999),
-                'eps': 1e-8,
+                'eps': eps,
                 'weight_decay': weight_decay
             }
         },
@@ -129,7 +131,7 @@ def create_optimizers_config(base_lr: float, weight_decay: float) -> dict:
             'params': {
                 'lr': base_lr,
                 'betas': (0.9, 0.999),
-                'eps': 1e-8,
+                'eps': eps,
                 'weight_decay': weight_decay
             }
         },
@@ -327,7 +329,185 @@ def full_comparison(dataset_type: int = 1):
     return run_experiment(dataset_type=dataset_type)
 
 
-def batch_size_comparison_experiment(dataset_type: int = None, epochs: int = None):
+def hyperparameter_grid_search_experiment(dataset_type: Optional[int] = None, epochs: Optional[int] = None):
+    """
+    Learning rate와 epsilon 조합별 Adam vs AdamABS 비교 실험
+    
+    Args:
+        dataset_type: 특정 데이터셋만 테스트 (None이면 모든 데이터셋)
+        epochs: 에포크 수 (None이면 기본값 사용)
+    
+    Returns:
+        dict: 모든 실험 결과
+    """
+    print("🚀 Hyperparameter Grid Search: Adam vs AdamABS 비교 실험")
+    print("=" * 80)
+    
+    # 시각화 모드 안내 (실험 시작 시에만)
+    set_visualization_mode(show_plots=SHOW_PLOTS, save_plots=SAVE_PLOTS, show_message=True)
+    
+    # 실험 설정
+    datasets_to_test = [dataset_type] if dataset_type else [1, 2, 3]
+    learning_rates = [0.0005, 0.001, 0.002]  # 기본값 0.001 중심
+    epsilons = [1e-9, 1e-8, 1e-7]  # 기본값 1e-8 중심
+    optimizers = ['Adam', 'AdamABS']
+    
+    dataset_names = {1: "MNIST", 2: "CIFAR-10", 3: "Fashion-MNIST"}
+    
+    # 전체 실험 수 계산
+    total_experiments = len(datasets_to_test) * len(learning_rates) * len(epsilons) * len(optimizers)
+    print(f"📋 실험 계획:")
+    print(f"   데이터셋: {[dataset_names[d] for d in datasets_to_test]}")
+    print(f"   Learning Rates: {learning_rates}")
+    print(f"   Epsilon Values: {epsilons}")
+    print(f"   옵티마이저: {optimizers}")
+    print(f"   배치 사이즈: 128 (고정)")
+    print(f"   총 실험 수: {total_experiments}개")
+    print("=" * 80)
+    
+    # 모든 실험 결과 저장
+    all_results = {}
+    experiment_count = 0
+    
+    start_time = time.time()
+    
+    for dataset_idx, ds_type in enumerate(datasets_to_test):
+        dataset_name = dataset_names[ds_type]
+        print(f"\n🎯 {dataset_name} 데이터셋 실험 시작...")
+        
+        all_results[dataset_name] = {}
+        
+        for lr_idx, lr in enumerate(learning_rates):
+            for eps_idx, eps in enumerate(epsilons):
+                combo_key = f"lr_{lr}_eps_{eps:.0e}"
+                print(f"\n🔧 LR={lr}, Epsilon={eps:.0e} 실험...")
+                
+                all_results[dataset_name][combo_key] = {}
+                
+                # 해당 hyperparameter 조합으로 실험 실행
+                try:
+                    # epsilon 값을 전달하기 위해 custom experiment 실행
+                    config = setup_experiment_config(ds_type, epochs, lr)
+                    config['batch_size'] = 128  # 고정
+                    
+                    # 데이터 로더 생성
+                    data_loader = get_dataset_loader(
+                        dataset_type=ds_type,
+                        batch_size=128,
+                        num_workers=4 if torch.cuda.is_available() else 2
+                    )
+                    
+                    # 옵티마이저 설정 (epsilon 포함)
+                    optimizers_config = create_optimizers_config(lr, config['weight_decay'], eps)
+                    optimizers_config = {name: optimizers_config[name] 
+                                       for name in optimizers if name in optimizers_config}
+                    
+                    # 모델 팩토리
+                    def model_factory():
+                        return create_model(ds_type, config['model_type'])
+                    
+                    # 스케줄러 팩토리
+                    def scheduler_factory(optimizer):
+                        return create_standard_scheduler(
+                            optimizer, 
+                            scheduler_type=config['scheduler_type'], 
+                            epochs=config['epochs']
+                        )
+                    
+                    # 실험 실행
+                    experiment = OptimizerExperiment(ds_type, config['model_type'], enable_checkpoints=True)
+                    experiment_results = experiment.run_comparison_experiment(
+                        optimizers_config=optimizers_config,
+                        train_loader=data_loader.train_loader,
+                        val_loader=data_loader.val_loader,
+                        test_loader=data_loader.test_loader,
+                        model_factory_fn=model_factory,
+                        epochs=config['epochs'],
+                        scheduler_factory_fn=scheduler_factory,
+                        resume_from_checkpoint=False
+                    )
+                    
+                    # epsilon 값을 옵티마이저 설정에 추가로 적용
+                    if experiment_results:
+                        # 결과에 hyperparameter 정보 추가
+                        for opt_name in experiment_results.keys():
+                            experiment_results[opt_name]['hyperparameters'] = {
+                                'lr': lr,
+                                'eps': eps,
+                                'batch_size': 128
+                            }
+                        
+                        all_results[dataset_name][combo_key] = experiment_results
+                        experiment_count += len(optimizers)
+                        
+                        # 진행 상황 출력
+                        elapsed_time = time.time() - start_time
+                        progress = experiment_count / total_experiments * 100
+                        print(f"⏱️  진행률: {progress:.1f}% ({experiment_count}/{total_experiments})")
+                        print(f"   경과 시간: {elapsed_time/60:.1f}분")
+                        
+                        if experiment_count < total_experiments:
+                            remaining_time = elapsed_time * (total_experiments - experiment_count) / experiment_count
+                            print(f"   예상 남은 시간: {remaining_time/60:.1f}분")
+                    else:
+                        print(f"❌ LR={lr}, Epsilon={eps:.0e} 실험 실패")
+                        
+                except Exception as e:
+                    print(f"❌ LR={lr}, Epsilon={eps:.0e} 실험 중 오류: {e}")
+                    continue
+    
+    total_time = time.time() - start_time
+    
+    # 결과 요약 및 시각화
+    print("\n" + "=" * 80)
+    print("🎉 모든 Hyperparameter Grid Search 실험 완료!")
+    print("=" * 80)
+    print(f"총 실험 시간: {total_time/3600:.2f}시간 ({total_time/60:.1f}분)")
+    print(f"완료된 실험: {experiment_count}/{total_experiments}개")
+    
+    if experiment_count > 0:
+        # Hyperparameter 전용 시각화 생성
+        print(f"\n📊 Hyperparameter Grid Search 시각화 생성 중...")
+        from visualizer import HyperparameterVisualizer
+        
+        try:
+            hyperparameter_visualizer = HyperparameterVisualizer('./final_results')
+            viz_files = hyperparameter_visualizer.create_hyperparameter_analysis(all_results)
+            
+            print(f"\n📁 생성된 시각화 파일:")
+            for viz_type, file_path in viz_files.items():
+                print(f"   {viz_type}: {os.path.basename(file_path)}")
+                
+        except Exception as e:
+            print(f"⚠️  시각화 생성 중 오류: {e}")
+            print("기본 시각화로 대체합니다...")
+            
+            # 기본 시각화 (각 데이터셋별로)
+            visualizer = ExperimentVisualizer('./final_results')
+            
+            for dataset_name, dataset_results in all_results.items():
+                for combo_key, combo_results in dataset_results.items():
+                    if combo_results:
+                        visualizer.generate_all_visualizations(
+                            combo_results, 
+                            f"{dataset_name} ({combo_key})"
+                        )
+    
+    # 최종 요약 출력
+    print(f"\n📈 Hyperparameter 조합별 성능 요약:")
+    for dataset_name, dataset_results in all_results.items():
+        print(f"\n{dataset_name}:")
+        for combo_key, combo_results in dataset_results.items():
+            if combo_results:
+                print(f"  {combo_key}:")
+                for opt_name, opt_result in combo_results.items():
+                    best_acc = opt_result.get('best_val_acc', 0)
+                    print(f"    {opt_name}: {best_acc:.2f}%")
+    
+    return all_results
+
+
+def batch_size_comparison_experiment(dataset_type: Optional[int] = None, epochs: Optional[int] = None):
     """
     배치 사이즈별 Adam vs AdamABS 비교 실험
     
@@ -508,15 +688,16 @@ def interactive_mode():
     print("2. Adam vs AdamABS 집중 비교")
     print("3. 전체 옵티마이저 비교")
     print("4. 배치 사이즈 비교 실험 (Adam vs AdamABS, 배치 64/128/256)")
-    print("5. 사용자 정의 설정")
+    print("5. Hyperparameter Grid Search (Adam vs AdamABS, LR & Epsilon 조합)")
+    print("6. 사용자 정의 설정")
     
     while True:
         try:
-            mode_choice = int(input("모드를 선택하세요 (1-5): "))
-            if mode_choice in [1, 2, 3, 4, 5]:
+            mode_choice = int(input("모드를 선택하세요 (1-6): "))
+            if mode_choice in [1, 2, 3, 4, 5, 6]:
                 break
             else:
-                print("❌ 1, 2, 3, 4, 5 중에서 선택해주세요.")
+                print("❌ 1, 2, 3, 4, 5, 6 중에서 선택해주세요.")
         except ValueError:
             print("❌ 숫자를 입력해주세요.")
     
@@ -564,6 +745,40 @@ def interactive_mode():
             print("❌ 실험이 취소되었습니다.")
             return None
     elif mode_choice == 5:
+        # Hyperparameter Grid Search 실험
+        print("\n🚀 Hyperparameter Grid Search 실험 설정:")
+        
+        # 에포크 수 설정 (선택사항)
+        epochs = None
+        epochs_input = input("에포크 수 (기본값 사용하려면 엔터): ").strip()
+        if epochs_input:
+            try:
+                epochs = int(epochs_input)
+            except ValueError:
+                print("❌ 잘못된 입력. 기본값을 사용합니다.")
+        
+        # 전체 데이터셋 vs 선택된 데이터셋
+        all_datasets_input = input("모든 데이터셋에서 실험하시겠습니까? (Y/n): ").strip().lower()
+        target_dataset = None if all_datasets_input in ['', 'y', 'yes', '예'] else dataset_choice
+        
+        if target_dataset:
+            dataset_name = {1: "MNIST", 2: "CIFAR-10", 3: "Fashion-MNIST"}[target_dataset]
+            print(f"선택된 데이터셋: {dataset_name}")
+        else:
+            print("선택된 데이터셋: 모든 데이터셋 (MNIST, CIFAR-10, Fashion-MNIST)")
+        
+        print("Learning Rates: [0.0005, 0.001, 0.002]")
+        print("Epsilon Values: [1e-9, 1e-8, 1e-7]")
+        print("배치 사이즈: 128 (고정)")
+        print("옵티마이저: Adam, AdamABS")
+        
+        confirm = input("\n실험을 시작하시겠습니까? (Y/n): ").strip().lower()
+        if confirm in ['', 'y', 'yes', '예']:
+            return hyperparameter_grid_search_experiment(target_dataset, epochs)
+        else:
+            print("❌ 실험이 취소되었습니다.")
+            return None
+    elif mode_choice == 6:
         # 사용자 정의 설정
         print("\n사용자 정의 설정:")
         
@@ -599,6 +814,8 @@ def main():
   python main_experiment.py --dataset 3 --epochs 15 --lr 0.001
   python main_experiment.py --batch-size-comparison --dataset 1 # MNIST 배치 사이즈 비교
   python main_experiment.py --batch-size-comparison # 모든 데이터셋 배치 사이즈 비교
+  python main_experiment.py --hyperparameter-grid-search --dataset 1 # MNIST hyperparameter 그리드 서치
+  python main_experiment.py --hyperparameter-grid-search # 모든 데이터셋 hyperparameter 그리드 서치
         """
     )
     
@@ -621,6 +838,8 @@ def main():
                        help='Adam vs AdamABS만 비교')
     parser.add_argument('--batch-size-comparison', action='store_true',
                        help='배치 사이즈별 Adam vs AdamABS 비교 (64, 128, 256)')
+    parser.add_argument('--hyperparameter-grid-search', action='store_true',
+                       help='Learning rate와 epsilon 조합별 Adam vs AdamABS 비교')
     parser.add_argument('--resume', action='store_true',
                        help='기존 체크포인트에서 훈련 재개')
     parser.add_argument('--list-checkpoints', action='store_true',
@@ -641,6 +860,10 @@ def main():
     # 배치 사이즈 비교 실험은 데이터셋 선택이 선택사항
     if args.batch_size_comparison:
         return batch_size_comparison_experiment(args.dataset, args.epochs)
+    
+    # Hyperparameter Grid Search 실험도 데이터셋 선택이 선택사항
+    if args.hyperparameter_grid_search:
+        return hyperparameter_grid_search_experiment(args.dataset, args.epochs)
     
     # 다른 실험들은 데이터셋이 필수
     if args.dataset is None:

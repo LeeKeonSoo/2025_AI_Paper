@@ -1532,6 +1532,439 @@ class BatchSizeVisualizer:
         return save_path
 
 
+class HyperparameterVisualizer:
+    """Hyperparameter Grid Search 결과 시각화 클래스"""
+    
+    def __init__(self, results_dir: str = './final_results'):
+        """
+        Args:
+            results_dir: 결과 저장 디렉토리
+        """
+        self.results_dir = results_dir
+        self.colors = {
+            'Adam': '#1f77b4',
+            'AdamABS': '#2ca02c'
+        }
+        
+        # 결과 디렉토리 생성
+        os.makedirs(results_dir, exist_ok=True)
+        os.makedirs(os.path.join(results_dir, 'hyperparameter_grid'), exist_ok=True)
+        
+        print(f"📊 HyperparameterVisualizer 초기화")
+        print(f"   저장 경로: {os.path.abspath(results_dir)}")
+    
+    def create_hyperparameter_analysis(self, all_results: Dict[str, Any]) -> Dict[str, str]:
+        """
+        Hyperparameter Grid Search 결과 종합 분석 및 시각화
+        
+        Args:
+            all_results: 모든 실험 결과 딕셔너리
+            
+        Returns:
+            Dict: 생성된 시각화 파일 경로들
+        """
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        viz_files = {}
+        
+        try:
+            # 각 데이터셋별로 시각화 생성
+            for dataset_name, dataset_results in all_results.items():
+                if not dataset_results:
+                    continue
+                
+                print(f"\n📊 {dataset_name} Hyperparameter 분석 생성 중...")
+                
+                # 1. 히트맵 생성 (Adam vs AdamABS 별도)
+                heatmap_files = self._create_heatmaps(dataset_name, dataset_results, timestamp)
+                viz_files.update(heatmap_files)
+                
+                # 2. 최적 hyperparameter 분석
+                best_analysis_file = self._create_best_hyperparameter_analysis(
+                    dataset_name, dataset_results, timestamp
+                )
+                if best_analysis_file:
+                    viz_files[f'{dataset_name}_best_analysis'] = best_analysis_file
+                
+                # 3. 성능 비교 차트
+                comparison_file = self._create_performance_comparison(
+                    dataset_name, dataset_results, timestamp
+                )
+                if comparison_file:
+                    viz_files[f'{dataset_name}_performance_comparison'] = comparison_file
+            
+            # 4. 전체 데이터셋 종합 리포트
+            if len(all_results) > 1:
+                comprehensive_file = self._create_comprehensive_report(all_results, timestamp)
+                if comprehensive_file:
+                    viz_files['comprehensive_report'] = comprehensive_file
+            
+            print(f"\n✅ Hyperparameter 시각화 완료!")
+            return viz_files
+            
+        except Exception as e:
+            print(f"❌ Hyperparameter 시각화 생성 중 오류: {e}")
+            import traceback
+            traceback.print_exc()
+            return {}
+    
+    def _create_heatmaps(self, dataset_name: str, dataset_results: Dict, timestamp: str) -> Dict[str, str]:
+        """Learning Rate vs Epsilon 히트맵 생성"""
+        files = {}
+        
+        # Learning rates와 epsilons 추출
+        learning_rates = []
+        epsilons = []
+        
+        for combo_key in dataset_results.keys():
+            if combo_key.startswith('lr_'):
+                parts = combo_key.split('_')
+                lr = float(parts[1])
+                eps = float(parts[3])
+                if lr not in learning_rates:
+                    learning_rates.append(lr)
+                if eps not in epsilons:
+                    epsilons.append(eps)
+        
+        learning_rates.sort()
+        epsilons.sort()
+        
+        # Adam과 AdamABS 각각에 대해 히트맵 생성
+        for optimizer in ['Adam', 'AdamABS']:
+            # 성능 매트릭스 생성
+            performance_matrix = np.zeros((len(epsilons), len(learning_rates)))
+            
+            for i, eps in enumerate(epsilons):
+                for j, lr in enumerate(learning_rates):
+                    combo_key = f"lr_{lr}_eps_{eps:.0e}"
+                    if combo_key in dataset_results and optimizer in dataset_results[combo_key]:
+                        performance_matrix[i, j] = dataset_results[combo_key][optimizer]['best_val_acc']
+            
+            # 히트맵 그리기
+            plt.figure(figsize=(10, 8))
+            sns.heatmap(
+                performance_matrix,
+                annot=True,
+                fmt='.2f',
+                xticklabels=[f'{lr:.4f}' for lr in learning_rates],
+                yticklabels=[f'{eps:.0e}' for eps in epsilons],
+                cmap='RdYlGn',
+                vmin=np.min(performance_matrix[performance_matrix > 0]),
+                vmax=np.max(performance_matrix),
+                cbar_kws={'label': 'Best Validation Accuracy (%)'}
+            )
+            
+            plt.title(f'{dataset_name} - {optimizer} Hyperparameter Grid Search\nLearning Rate vs Epsilon', 
+                     fontsize=14, fontweight='bold')
+            plt.xlabel('Learning Rate', fontsize=12)
+            plt.ylabel('Epsilon', fontsize=12)
+            plt.tight_layout()
+            
+            # 저장
+            filename = f"{dataset_name.lower()}_{optimizer.lower()}_heatmap_{timestamp}.png"
+            filepath = os.path.join(self.results_dir, 'hyperparameter_grid', filename)
+            
+            _handle_plot_display_and_save(filepath, f"💾 {optimizer} 히트맵 저장: {filename}")
+            files[f'{dataset_name}_{optimizer}_heatmap'] = filepath
+        
+        return files
+    
+    def _create_best_hyperparameter_analysis(self, dataset_name: str, dataset_results: Dict, 
+                                           timestamp: str) -> Optional[str]:
+        """최적 hyperparameter 조합 분석"""
+        
+        # 각 옵티마이저의 최고 성능과 해당 hyperparameter 찾기
+        best_results = {}
+        
+        for combo_key, combo_results in dataset_results.items():
+            if not combo_key.startswith('lr_'):
+                continue
+                
+            parts = combo_key.split('_')
+            lr = float(parts[1])
+            eps = float(parts[3])
+            
+            for optimizer, result in combo_results.items():
+                if optimizer not in best_results:
+                    best_results[optimizer] = {
+                        'best_acc': 0,
+                        'best_lr': 0,
+                        'best_eps': 0,
+                        'all_results': []
+                    }
+                
+                acc = result['best_val_acc']
+                best_results[optimizer]['all_results'].append({
+                    'lr': lr, 'eps': eps, 'acc': acc
+                })
+                
+                if acc > best_results[optimizer]['best_acc']:
+                    best_results[optimizer].update({
+                        'best_acc': acc,
+                        'best_lr': lr,
+                        'best_eps': eps
+                    })
+        
+        # 시각화
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 12))
+        fig.suptitle(f'{dataset_name} - Best Hyperparameter Analysis', fontsize=16, fontweight='bold')
+        
+        optimizers = list(best_results.keys())
+        
+        # 1. 최고 성능 비교
+        best_accs = [best_results[opt]['best_acc'] for opt in optimizers]
+        bars = ax1.bar(optimizers, best_accs, color=[self.colors[opt] for opt in optimizers])
+        ax1.set_title('Best Validation Accuracy', fontweight='bold')
+        ax1.set_ylabel('Accuracy (%)')
+        ax1.set_ylim([min(best_accs) - 1, max(best_accs) + 1])
+        
+        # 막대 위에 값 표시
+        for bar, acc in zip(bars, best_accs):
+            ax1.text(bar.get_x() + bar.get_width()/2., bar.get_height() + 0.1,
+                    f'{acc:.2f}%', ha='center', va='bottom', fontweight='bold')
+        
+        # 2. 최적 Learning Rate
+        best_lrs = [best_results[opt]['best_lr'] for opt in optimizers]
+        bars = ax2.bar(optimizers, best_lrs, color=[self.colors[opt] for opt in optimizers])
+        ax2.set_title('Best Learning Rate', fontweight='bold')
+        ax2.set_ylabel('Learning Rate')
+        ax2.set_yscale('log')
+        
+        for bar, lr in zip(bars, best_lrs):
+            ax2.text(bar.get_x() + bar.get_width()/2., bar.get_height() * 1.1,
+                    f'{lr:.4f}', ha='center', va='bottom', fontweight='bold', rotation=45)
+        
+        # 3. 최적 Epsilon
+        best_eps = [best_results[opt]['best_eps'] for opt in optimizers]
+        bars = ax3.bar(optimizers, best_eps, color=[self.colors[opt] for opt in optimizers])
+        ax3.set_title('Best Epsilon', fontweight='bold')
+        ax3.set_ylabel('Epsilon')
+        ax3.set_yscale('log')
+        
+        for bar, eps in zip(bars, best_eps):
+            ax3.text(bar.get_x() + bar.get_width()/2., bar.get_height() * 1.1,
+                    f'{eps:.0e}', ha='center', va='bottom', fontweight='bold', rotation=45)
+        
+        # 4. Hyperparameter Sensitivity 분석 (평균과 표준편차)
+        for opt in optimizers:
+            accs = [r['acc'] for r in best_results[opt]['all_results']]
+            mean_acc = np.mean(accs)
+            std_acc = np.std(accs)
+            
+            ax4.bar(opt, mean_acc, yerr=std_acc, 
+                   color=self.colors[opt], alpha=0.7, capsize=5,
+                   label=f'{opt} (μ±σ: {mean_acc:.2f}±{std_acc:.2f})')
+        
+        ax4.set_title('Hyperparameter Sensitivity\n(Mean ± Std across all combinations)', fontweight='bold')
+        ax4.set_ylabel('Validation Accuracy (%)')
+        ax4.legend()
+        
+        plt.tight_layout()
+        
+        # 저장
+        filename = f"{dataset_name.lower()}_best_hyperparameter_analysis_{timestamp}.png"
+        filepath = os.path.join(self.results_dir, 'hyperparameter_grid', filename)
+        
+        _handle_plot_display_and_save(filepath, f"💾 최적 hyperparameter 분석 저장: {filename}")
+        return filepath
+    
+    def _create_performance_comparison(self, dataset_name: str, dataset_results: Dict, 
+                                     timestamp: str) -> Optional[str]:
+        """성능 비교 차트 생성"""
+        
+        # 데이터 정리
+        comparison_data = []
+        
+        for combo_key, combo_results in dataset_results.items():
+            if not combo_key.startswith('lr_'):
+                continue
+                
+            parts = combo_key.split('_')
+            lr = float(parts[1])
+            eps = float(parts[3])
+            
+            for optimizer, result in combo_results.items():
+                comparison_data.append({
+                    'Optimizer': optimizer,
+                    'Learning_Rate': lr,
+                    'Epsilon': eps,
+                    'Accuracy': result['best_val_acc'],
+                    'Training_Time': result.get('total_training_time', 0)
+                })
+        
+        if not comparison_data:
+            return None
+        
+        df = pd.DataFrame(comparison_data)
+        
+        # 시각화
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 12))
+        fig.suptitle(f'{dataset_name} - Performance Comparison Across Hyperparameters', 
+                     fontsize=16, fontweight='bold')
+        
+        # 1. Learning Rate별 성능
+        lr_grouped = df.groupby(['Learning_Rate', 'Optimizer'])['Accuracy'].mean().unstack()
+        lr_grouped.plot(kind='bar', ax=ax1, color=[self.colors[col] for col in lr_grouped.columns])
+        ax1.set_title('Performance by Learning Rate', fontweight='bold')
+        ax1.set_xlabel('Learning Rate')
+        ax1.set_ylabel('Accuracy (%)')
+        ax1.legend(title='Optimizer')
+        ax1.tick_params(axis='x', rotation=45)
+        
+        # 2. Epsilon별 성능
+        eps_grouped = df.groupby(['Epsilon', 'Optimizer'])['Accuracy'].mean().unstack()
+        eps_grouped.plot(kind='bar', ax=ax2, color=[self.colors[col] for col in eps_grouped.columns])
+        ax2.set_title('Performance by Epsilon', fontweight='bold')
+        ax2.set_xlabel('Epsilon')
+        ax2.set_ylabel('Accuracy (%)')
+        ax2.legend(title='Optimizer')
+        ax2.tick_params(axis='x', rotation=45)
+        
+        # 3. 정확도 vs 훈련 시간 스캐터 플롯
+        for optimizer in df['Optimizer'].unique():
+            subset = df[df['Optimizer'] == optimizer]
+            ax3.scatter(subset['Training_Time'], subset['Accuracy'], 
+                       label=optimizer, color=self.colors[optimizer], 
+                       s=50, alpha=0.7)
+        
+        ax3.set_title('Accuracy vs Training Time', fontweight='bold')
+        ax3.set_xlabel('Training Time (seconds)')
+        ax3.set_ylabel('Accuracy (%)')
+        ax3.legend()
+        ax3.grid(True, alpha=0.3)
+        
+        # 4. 박스플롯 (옵티마이저별 성능 분포)
+        optimizers = df['Optimizer'].unique()
+        data_for_box = [df[df['Optimizer'] == opt]['Accuracy'].values for opt in optimizers]
+        
+        box_plot = ax4.boxplot(data_for_box, labels=optimizers, patch_artist=True)
+        for patch, optimizer in zip(box_plot['boxes'], optimizers):
+            patch.set_facecolor(self.colors[optimizer])
+            patch.set_alpha(0.7)
+        
+        ax4.set_title('Performance Distribution', fontweight='bold')
+        ax4.set_ylabel('Accuracy (%)')
+        ax4.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        
+        # 저장
+        filename = f"{dataset_name.lower()}_performance_comparison_{timestamp}.png"
+        filepath = os.path.join(self.results_dir, 'hyperparameter_grid', filename)
+        
+        _handle_plot_display_and_save(filepath, f"💾 성능 비교 차트 저장: {filename}")
+        return filepath
+    
+    def _create_comprehensive_report(self, all_results: Dict[str, Any], timestamp: str) -> Optional[str]:
+        """전체 데이터셋에 대한 종합 리포트"""
+        
+        # 데이터 수집
+        summary_data = []
+        
+        for dataset_name, dataset_results in all_results.items():
+            if not dataset_results:
+                continue
+                
+            for combo_key, combo_results in dataset_results.items():
+                if not combo_key.startswith('lr_'):
+                    continue
+                    
+                parts = combo_key.split('_')
+                lr = float(parts[1])
+                eps = float(parts[3])
+                
+                for optimizer, result in combo_results.items():
+                    summary_data.append({
+                        'Dataset': dataset_name,
+                        'Optimizer': optimizer,
+                        'Learning_Rate': lr,
+                        'Epsilon': eps,
+                        'Accuracy': result['best_val_acc'],
+                        'Training_Time': result.get('total_training_time', 0)
+                    })
+        
+        if not summary_data:
+            return None
+        
+        df = pd.DataFrame(summary_data)
+        
+        # 시각화
+        fig = plt.figure(figsize=(20, 12))
+        
+        # 1. 데이터셋별 최고 성능 비교 (2x2 그리드의 첫 번째)
+        ax1 = plt.subplot(2, 3, 1)
+        best_by_dataset = df.groupby(['Dataset', 'Optimizer'])['Accuracy'].max().unstack()
+        best_by_dataset.plot(kind='bar', ax=ax1, color=[self.colors[col] for col in best_by_dataset.columns])
+        ax1.set_title('Best Performance by Dataset', fontweight='bold')
+        ax1.set_ylabel('Best Accuracy (%)')
+        ax1.legend(title='Optimizer')
+        ax1.tick_params(axis='x', rotation=45)
+        
+        # 2. 평균 성능 비교
+        ax2 = plt.subplot(2, 3, 2)
+        avg_by_dataset = df.groupby(['Dataset', 'Optimizer'])['Accuracy'].mean().unstack()
+        avg_by_dataset.plot(kind='bar', ax=ax2, color=[self.colors[col] for col in avg_by_dataset.columns])
+        ax2.set_title('Average Performance by Dataset', fontweight='bold')
+        ax2.set_ylabel('Average Accuracy (%)')
+        ax2.legend(title='Optimizer')
+        ax2.tick_params(axis='x', rotation=45)
+        
+        # 3. 옵티마이저별 전체 성능 분포
+        ax3 = plt.subplot(2, 3, 3)
+        optimizers = df['Optimizer'].unique()
+        data_for_violin = [df[df['Optimizer'] == opt]['Accuracy'].values for opt in optimizers]
+        
+        violin_parts = ax3.violinplot(data_for_violin, positions=range(len(optimizers)), showmeans=True)
+        ax3.set_xticks(range(len(optimizers)))
+        ax3.set_xticklabels(optimizers)
+        ax3.set_title('Overall Performance Distribution', fontweight='bold')
+        ax3.set_ylabel('Accuracy (%)')
+        ax3.grid(True, alpha=0.3)
+        
+        # 색상 적용
+        for i, optimizer in enumerate(optimizers):
+            violin_parts['bodies'][i].set_facecolor(self.colors[optimizer])
+            violin_parts['bodies'][i].set_alpha(0.7)
+        
+        # 4. 훈련 시간 비교
+        ax4 = plt.subplot(2, 3, 4)
+        time_by_dataset = df.groupby(['Dataset', 'Optimizer'])['Training_Time'].mean().unstack()
+        time_by_dataset.plot(kind='bar', ax=ax4, color=[self.colors[col] for col in time_by_dataset.columns])
+        ax4.set_title('Average Training Time by Dataset', fontweight='bold')
+        ax4.set_ylabel('Training Time (seconds)')
+        ax4.legend(title='Optimizer')
+        ax4.tick_params(axis='x', rotation=45)
+        
+        # 5. Hyperparameter Robustness (표준편차)
+        ax5 = plt.subplot(2, 3, 5)
+        std_by_dataset = df.groupby(['Dataset', 'Optimizer'])['Accuracy'].std().unstack()
+        std_by_dataset.plot(kind='bar', ax=ax5, color=[self.colors[col] for col in std_by_dataset.columns])
+        ax5.set_title('Performance Stability (Lower is Better)', fontweight='bold')
+        ax5.set_ylabel('Standard Deviation (%)')
+        ax5.legend(title='Optimizer')
+        ax5.tick_params(axis='x', rotation=45)
+        
+        # 6. 종합 스코어 (정확도 / 표준편차)
+        ax6 = plt.subplot(2, 3, 6)
+        robustness_score = avg_by_dataset / std_by_dataset.fillna(1)  # NaN을 1로 대체
+        robustness_score.plot(kind='bar', ax=ax6, color=[self.colors[col] for col in robustness_score.columns])
+        ax6.set_title('Robustness Score (Accuracy/Std)', fontweight='bold')
+        ax6.set_ylabel('Robustness Score')
+        ax6.legend(title='Optimizer')
+        ax6.tick_params(axis='x', rotation=45)
+        
+        plt.suptitle('Comprehensive Hyperparameter Grid Search Report: Adam vs AdamABS', 
+                     fontsize=18, fontweight='bold', y=0.98)
+        plt.tight_layout()
+        plt.subplots_adjust(top=0.93)
+        
+        # 저장
+        filename = f"comprehensive_hyperparameter_report_{timestamp}.png"
+        filepath = os.path.join(self.results_dir, 'hyperparameter_grid', filename)
+        
+        _handle_plot_display_and_save(filepath, f"💾 종합 리포트 저장: {filename}")
+        return filepath
+
+
 if __name__ == "__main__":
     # 간단한 테스트
     print("ExperimentVisualizer 테스트")
