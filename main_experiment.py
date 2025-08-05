@@ -5,7 +5,7 @@ Adam, AdamW, AdamABS 옵티마이저 비교 실험
 데이터셋 선택:
 1 - MNIST
 2 - CIFAR-10  
-3 - Fashion-MNIST
+3 - Tiny ImageNet
 
 Author: AI Research
 Date: 2025
@@ -49,7 +49,7 @@ def setup_experiment_config(dataset_type: int, epochs: int = None, lr: float = N
     데이터셋별 기본 실험 설정
     
     Args:
-        dataset_type: 1(MNIST), 2(CIFAR-10), 3(Fashion-MNIST)
+        dataset_type: 1(MNIST), 2(CIFAR-10), 3(Tiny ImageNet)
         epochs: 사용자 지정 에포크 수 (None이면 기본값 사용)
         lr: 사용자 지정 학습률 (None이면 기본값 사용)
     
@@ -74,11 +74,11 @@ def setup_experiment_config(dataset_type: int, epochs: int = None, lr: float = N
             'model_type': 'default',
             'scheduler_type': 'cosine'
         },
-        3: {  # Fashion-MNIST
-            'epochs': 15,
+        3: {  # Tiny ImageNet
+            'epochs': 25,
             'lr': 0.001,
-            'weight_decay': 1e-4,
-            'batch_size': 128,
+            'weight_decay': 5e-4,
+            'batch_size': 64,
             'model_type': 'default',
             'scheduler_type': 'cosine'
         }
@@ -145,7 +145,7 @@ def run_experiment(dataset_type: int, epochs: int = None, lr: float = None,
     메인 실험 실행
     
     Args:
-        dataset_type: 1(MNIST), 2(CIFAR-10), 3(Fashion-MNIST)
+        dataset_type: 1(MNIST), 2(CIFAR-10), 3(Tiny ImageNet)
         epochs: 훈련 에포크 수
         lr: 학습률
         batch_size: 배치 크기
@@ -165,7 +165,7 @@ def run_experiment(dataset_type: int, epochs: int = None, lr: float = None,
         config['model_type'] = model_type
     
     # 데이터셋 이름 매핑
-    dataset_names = {1: "MNIST", 2: "CIFAR-10", 3: "Fashion-MNIST"}
+    dataset_names = {1: "MNIST", 2: "CIFAR-10", 3: "Tiny ImageNet"}
     dataset_name = dataset_names[dataset_type]
     
     print("=" * 100)
@@ -294,7 +294,7 @@ def quick_test(dataset_type: int = 1):
     빠른 테스트 실행 (적은 에포크로)
     
     Args:
-        dataset_type: 1(MNIST), 2(CIFAR-10), 3(Fashion-MNIST)
+        dataset_type: 1(MNIST), 2(CIFAR-10), 3(Tiny ImageNet)
     """
     print("⚡ 빠른 테스트 모드")
     return run_experiment(
@@ -309,7 +309,7 @@ def compare_adam_vs_adamabs(dataset_type: int = 1):
     Adam vs AdamABS 집중 비교
     
     Args:
-        dataset_type: 1(MNIST), 2(CIFAR-10), 3(Fashion-MNIST)
+        dataset_type: 1(MNIST), 2(CIFAR-10), 3(Tiny ImageNet)
     """
     print("🔬 Adam vs AdamABS 집중 비교")
     return run_experiment(
@@ -323,7 +323,7 @@ def full_comparison(dataset_type: int = 1):
     모든 옵티마이저 전체 비교
     
     Args:
-        dataset_type: 1(MNIST), 2(CIFAR-10), 3(Fashion-MNIST)
+        dataset_type: 1(MNIST), 2(CIFAR-10), 3(Tiny ImageNet)
     """
     print("🔬 전체 옵티마이저 비교")
     return run_experiment(dataset_type=dataset_type)
@@ -352,7 +352,7 @@ def hyperparameter_grid_search_experiment(dataset_type: Optional[int] = None, ep
     epsilons = [1e-9, 1e-8, 1e-7]  # 기본값 1e-8 중심
     optimizers = ['Adam', 'AdamABS']
     
-    dataset_names = {1: "MNIST", 2: "CIFAR-10", 3: "Fashion-MNIST"}
+    dataset_names = {1: "MNIST", 2: "CIFAR-10", 3: "Tiny ImageNet"}
     
     # 전체 실험 수 계산
     total_experiments = len(datasets_to_test) * len(learning_rates) * len(epsilons) * len(optimizers)
@@ -529,7 +529,7 @@ def batch_size_comparison_experiment(dataset_type: Optional[int] = None, epochs:
     batch_sizes = [64, 128, 256]
     optimizers = ['Adam', 'AdamABS']
     
-    dataset_names = {1: "MNIST", 2: "CIFAR-10", 3: "Fashion-MNIST"}
+    dataset_names = {1: "MNIST", 2: "CIFAR-10", 3: "Tiny ImageNet"}
     
     # 전체 실험 수 계산
     total_experiments = len(datasets_to_test) * len(batch_sizes) * len(optimizers)
@@ -730,10 +730,10 @@ def interactive_mode():
         target_dataset = None if all_datasets_input in ['', 'y', 'yes', '예'] else dataset_choice
         
         if target_dataset:
-            dataset_name = {1: "MNIST", 2: "CIFAR-10", 3: "Fashion-MNIST"}[target_dataset]
+            dataset_name = {1: "MNIST", 2: "CIFAR-10", 3: "Tiny ImageNet"}[target_dataset]
             print(f"선택된 데이터셋: {dataset_name}")
         else:
-            print("선택된 데이터셋: 모든 데이터셋 (MNIST, CIFAR-10, Fashion-MNIST)")
+            print("선택된 데이터셋: 모든 데이터셋 (MNIST, CIFAR-10, Tiny ImageNet)")
         
         print("배치 사이즈: 64, 128, 256")
         print("옵티마이저: Adam, AdamABS")
@@ -762,10 +762,10 @@ def interactive_mode():
         target_dataset = None if all_datasets_input in ['', 'y', 'yes', '예'] else dataset_choice
         
         if target_dataset:
-            dataset_name = {1: "MNIST", 2: "CIFAR-10", 3: "Fashion-MNIST"}[target_dataset]
+            dataset_name = {1: "MNIST", 2: "CIFAR-10", 3: "Tiny ImageNet"}[target_dataset]
             print(f"선택된 데이터셋: {dataset_name}")
         else:
-            print("선택된 데이터셋: 모든 데이터셋 (MNIST, CIFAR-10, Fashion-MNIST)")
+            print("선택된 데이터셋: 모든 데이터셋 (MNIST, CIFAR-10, Tiny ImageNet)")
         
         print("Learning Rates: [0.0005, 0.001, 0.002]")
         print("Epsilon Values: [1e-9, 1e-8, 1e-7]")
@@ -820,7 +820,7 @@ def main():
     )
     
     parser.add_argument('--dataset', type=int, choices=[1, 2, 3],
-                       help='데이터셋 선택: 1(MNIST), 2(CIFAR-10), 3(Fashion-MNIST)')
+                       help='데이터셋 선택: 1(MNIST), 2(CIFAR-10), 3(Tiny ImageNet)')
     parser.add_argument('--epochs', type=int,
                        help='훈련 에포크 수')
     parser.add_argument('--lr', type=float,
@@ -867,7 +867,7 @@ def main():
     
     # 다른 실험들은 데이터셋이 필수
     if args.dataset is None:
-        print("❌ --dataset 옵션을 지정해주세요. (1: MNIST, 2: CIFAR-10, 3: Fashion-MNIST)")
+        print("❌ --dataset 옵션을 지정해주세요. (1: MNIST, 2: CIFAR-10, 3: Tiny ImageNet)")
         return None
     
     # 실험 모드에 따른 실행

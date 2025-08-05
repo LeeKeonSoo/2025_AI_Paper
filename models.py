@@ -1,6 +1,6 @@
 """
 모델 정의 통합 모듈
-MNIST, CIFAR-10, Fashion-MNIST용 모델들
+MNIST, CIFAR-10, Tiny ImageNet용 모델들
 
 Author: AI Research  
 Date: 2025
@@ -231,38 +231,153 @@ class SimpleCIFAR10Net(nn.Module):
 
 
 # =============================================================================
-# Fashion-MNIST 모델들 (MNIST와 동일한 구조 사용)
+# Tiny ImageNet 모델들
 # =============================================================================
 
-# Fashion-MNIST는 MNIST와 동일한 28x28 grayscale 이미지이므로 
-# MNISTNet과 SimpleMNISTNet을 그대로 사용할 수 있습니다.
-# 필요시 Fashion-MNIST 전용 모델을 별도로 정의할 수 있습니다.
-
-class FashionMNISTNet(nn.Module):
-    """Fashion-MNIST용 CNN 모델 (MNISTNet과 동일한 구조)"""
+class BasicBlock(nn.Module):
+    """ResNet-18/34용 기본 블록"""
+    expansion = 1
     
-    def __init__(self, dropout_rate: float = 0.25):
-        super(FashionMNISTNet, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, padding=1)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
-        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
+    def __init__(self, in_planes: int, planes: int, stride: int = 1):
+        super(BasicBlock, self).__init__()
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, 
+                              padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, 
+                              padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(planes)
         
-        self.pool = nn.MaxPool2d(2, 2)
-        self.dropout1 = nn.Dropout2d(dropout_rate)
-        self.dropout2 = nn.Dropout(dropout_rate)
+        self.shortcut = nn.Sequential()
+        if stride != 1 or in_planes != self.expansion * planes:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, 
+                         stride=stride, bias=False),
+                nn.BatchNorm2d(self.expansion * planes)
+            )
+    
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out += self.shortcut(x)
+        out = F.relu(out)
+        return out
+
+
+class ResNet18(nn.Module):
+    """ResNet-18 for Tiny ImageNet"""
+    
+    def __init__(self, num_classes: int = 200, dropout_rate: float = 0.2):
+        super(ResNet18, self).__init__()
+        self.in_planes = 64
         
-        self.fc1 = nn.Linear(128 * 3 * 3, 256)
-        self.fc2 = nn.Linear(256, 128)
-        self.fc3 = nn.Linear(128, 10)
+        # 첫 번째 컨볼루션 (Tiny ImageNet은 64x64이므로 stride=1 사용)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(64)
         
-        self.batch_norm1 = nn.BatchNorm2d(32)
-        self.batch_norm2 = nn.BatchNorm2d(64)
-        self.batch_norm3 = nn.BatchNorm2d(128)
+        # ResNet layers
+        self.layer1 = self._make_layer(BasicBlock, 64, 2, stride=1)
+        self.layer2 = self._make_layer(BasicBlock, 128, 2, stride=2)
+        self.layer3 = self._make_layer(BasicBlock, 256, 2, stride=2)
+        self.layer4 = self._make_layer(BasicBlock, 512, 2, stride=2)
+        
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.dropout = nn.Dropout(dropout_rate)
+        self.fc = nn.Linear(512 * BasicBlock.expansion, num_classes)
+        
+        self._initialize_weights()
+    
+    def _make_layer(self, block, planes: int, num_blocks: int, stride: int):
+        strides = [stride] + [1] * (num_blocks - 1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride))
+            self.in_planes = planes * block.expansion
+        return nn.Sequential(*layers)
+    
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.constant_(m.bias, 0)
+    
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        out = self.layer4(out)
+        out = self.avgpool(out)
+        out = torch.flatten(out, 1)
+        out = self.dropout(out)
+        out = self.fc(out)
+        return out
+
+
+class SimpleTinyImageNetNet(nn.Module):
+    """간단한 Tiny ImageNet CNN 모델"""
+    
+    def __init__(self, num_classes: int = 200, dropout_rate: float = 0.3):
+        super(SimpleTinyImageNetNet, self).__init__()
+        
+        self.features = nn.Sequential(
+            # 첫 번째 블록 (64x64 -> 32x32)
+            nn.Conv2d(3, 64, kernel_size=3, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 64, kernel_size=3, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Dropout2d(dropout_rate * 0.5),
+            
+            # 두 번째 블록 (32x32 -> 16x16)
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(128, 128, kernel_size=3, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Dropout2d(dropout_rate * 0.7),
+            
+            # 세 번째 블록 (16x16 -> 8x8)
+            nn.Conv2d(128, 256, kernel_size=3, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, 256, kernel_size=3, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Dropout2d(dropout_rate),
+            
+            # 네 번째 블록 (8x8 -> 4x4)
+            nn.Conv2d(256, 512, kernel_size=3, padding=1),
+            nn.BatchNorm2d(512),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(512, 512, kernel_size=3, padding=1),
+            nn.BatchNorm2d(512),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+        )
+        
+        self.classifier = nn.Sequential(
+            nn.AdaptiveAvgPool2d((1, 1)),
+            nn.Flatten(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(512, 256),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout_rate),
+            nn.Linear(256, num_classes)
+        )
         
         self._initialize_weights()
     
     def _initialize_weights(self):
-        """가중치 초기화"""
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
@@ -276,59 +391,8 @@ class FashionMNISTNet(nn.Module):
                 nn.init.constant_(m.bias, 0)
     
     def forward(self, x):
-        # 첫 번째 컨볼루션 블록
-        x = self.pool(F.relu(self.batch_norm1(self.conv1(x))))
-        x = self.dropout1(x)
-        
-        # 두 번째 컨볼루션 블록
-        x = self.pool(F.relu(self.batch_norm2(self.conv2(x))))
-        x = self.dropout1(x)
-        
-        # 세 번째 컨볼루션 블록
-        x = self.pool(F.relu(self.batch_norm3(self.conv3(x))))
-        x = self.dropout1(x)
-        
-        # Flatten
-        x = x.view(-1, 128 * 3 * 3)
-        
-        # 완전연결층
-        x = F.relu(self.fc1(x))
-        x = self.dropout2(x)
-        x = F.relu(self.fc2(x))
-        x = self.dropout2(x)
-        x = self.fc3(x)
-        
-        return x
-
-
-class SimpleFashionMNISTNet(nn.Module):
-    """간단한 Fashion-MNIST 완전연결 모델"""
-    
-    def __init__(self, dropout_rate: float = 0.2):
-        super(SimpleFashionMNISTNet, self).__init__()
-        self.fc1 = nn.Linear(28 * 28, 512)
-        self.fc2 = nn.Linear(512, 256)
-        self.fc3 = nn.Linear(256, 128)
-        self.fc4 = nn.Linear(128, 10)
-        self.dropout = nn.Dropout(dropout_rate)
-        
-        self._initialize_weights()
-    
-    def _initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.normal_(m.weight, 0, 0.01)
-                nn.init.constant_(m.bias, 0)
-    
-    def forward(self, x):
-        x = x.view(-1, 28 * 28)
-        x = F.relu(self.fc1(x))
-        x = self.dropout(x)
-        x = F.relu(self.fc2(x))
-        x = self.dropout(x)
-        x = F.relu(self.fc3(x))
-        x = self.dropout(x)
-        x = self.fc4(x)
+        x = self.features(x)
+        x = self.classifier(x)
         return x
 
 
@@ -341,7 +405,7 @@ def create_model(dataset_type: int, model_type: str = 'default', **kwargs) -> nn
     데이터셋과 모델 타입에 따라 적절한 모델 생성
     
     Args:
-        dataset_type: 1(MNIST), 2(CIFAR-10), 3(Fashion-MNIST)
+        dataset_type: 1(MNIST), 2(CIFAR-10), 3(Tiny ImageNet)
         model_type: 'default', 'simple', 'resnet' 등
         **kwargs: 모델별 추가 파라미터
     
@@ -366,13 +430,13 @@ def create_model(dataset_type: int, model_type: str = 'default', **kwargs) -> nn
         else:
             raise ValueError(f"CIFAR-10에서 지원하지 않는 모델 타입: {model_type}")
     
-    elif dataset_type == 3:  # Fashion-MNIST
-        if model_type.lower() in ['default', 'cnn']:
-            return FashionMNISTNet(dropout_rate=dropout_rate)
+    elif dataset_type == 3:  # Tiny ImageNet
+        if model_type.lower() in ['default', 'resnet', 'resnet18']:
+            return ResNet18(num_classes=200, dropout_rate=dropout_rate)
         elif model_type.lower() == 'simple':
-            return SimpleFashionMNISTNet(dropout_rate=dropout_rate)
+            return SimpleTinyImageNetNet(num_classes=200, dropout_rate=dropout_rate)
         else:
-            raise ValueError(f"Fashion-MNIST에서 지원하지 않는 모델 타입: {model_type}")
+            raise ValueError(f"Tiny ImageNet에서 지원하지 않는 모델 타입: {model_type}")
     
     else:
         raise ValueError(f"지원하지 않는 데이터셋 타입: {dataset_type}")
@@ -401,15 +465,16 @@ def get_model_info(dataset_type: int) -> Dict[str, Any]:
             'num_classes': 10,
             'input_size': (3, 32, 32)
         },
-        3: {  # Fashion-MNIST
-            'dataset': 'Fashion-MNIST',
+        3: {  # Tiny ImageNet
+            'dataset': 'Tiny ImageNet',
             'models': {
-                'default': 'FashionMNISTNet (CNN with BatchNorm)',
-                'cnn': 'FashionMNISTNet (same as default)',
-                'simple': 'SimpleFashionMNISTNet (Fully Connected)'
+                'default': 'ResNet18 (ResNet-18 for Tiny ImageNet)',
+                'resnet': 'ResNet18 (same as default)',
+                'resnet18': 'ResNet18 (same as default)',
+                'simple': 'SimpleTinyImageNetNet (Basic CNN)'
             },
-            'num_classes': 10,
-            'input_size': (1, 28, 28)
+            'num_classes': 200,
+            'input_size': (3, 64, 64)
         }
     }
     
@@ -471,7 +536,7 @@ def print_all_models_info():
     print("\n사용법:")
     print("   model = create_model(dataset_type=1, model_type='default')")
     print("   model = create_model(dataset_type=2, model_type='simple')")
-    print("   model = create_model(dataset_type=3, model_type='resnet')")
+    print("   model = create_model(dataset_type=3, model_type='resnet')  # Tiny ImageNet")
     print("=" * 80)
 
 
@@ -488,8 +553,8 @@ if __name__ == "__main__":
         (1, 'simple'),   # MNIST FC
         (2, 'default'),  # CIFAR-10 ResNet
         (2, 'simple'),   # CIFAR-10 Simple
-        (3, 'default'),  # Fashion-MNIST CNN
-        (3, 'simple'),   # Fashion-MNIST Simple
+        (3, 'default'),  # Tiny ImageNet ResNet-18
+        (3, 'simple'),   # Tiny ImageNet Simple
     ]
     
     for dataset_type, model_type in test_cases:
