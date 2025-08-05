@@ -449,6 +449,8 @@ def hyperparameter_grid_search_experiment(dataset_type: Optional[int] = None, ep
                         if experiment_count < total_experiments:
                             remaining_time = elapsed_time * (total_experiments - experiment_count) / experiment_count
                             print(f"   예상 남은 시간: {remaining_time/60:.1f}분")
+                        else:
+                            print(f"🎯 모든 하이퍼파라미터 조합 실험 완료! 종합 시각화 준비 중...")
                     else:
                         print(f"❌ LR={lr}, Epsilon={eps:.0e} 실험 실패")
                         
@@ -464,34 +466,47 @@ def hyperparameter_grid_search_experiment(dataset_type: Optional[int] = None, ep
     print("=" * 80)
     print(f"총 실험 시간: {total_time/3600:.2f}시간 ({total_time/60:.1f}분)")
     print(f"완료된 실험: {experiment_count}/{total_experiments}개")
+    print(f"실험한 조합: {len(learning_rates)}개 LR × {len(epsilons)}개 Epsilon × {len(optimizers)}개 Optimizer")
+    if len(datasets_to_test) > 1:
+        print(f"테스트한 데이터셋: {len(datasets_to_test)}개 ({', '.join([dataset_names[d] for d in datasets_to_test])})")
     
     if experiment_count > 0:
         # Hyperparameter 전용 시각화 생성
-        print(f"\n📊 Hyperparameter Grid Search 시각화 생성 중...")
-        from visualizer import HyperparameterVisualizer
+        print(f"\n📊 Hyperparameter Grid Search 종합 시각화 생성 중...")
         
         try:
+            from visualizer import HyperparameterVisualizer
             hyperparameter_visualizer = HyperparameterVisualizer('./final_results')
             viz_files = hyperparameter_visualizer.create_hyperparameter_analysis(all_results)
             
-            print(f"\n📁 생성된 시각화 파일:")
+            print(f"\n📁 생성된 Hyperparameter 시각화 파일:")
             for viz_type, file_path in viz_files.items():
                 print(f"   {viz_type}: {os.path.basename(file_path)}")
+            
+            print(f"\n✅ Hyperparameter Grid Search 종합 시각화 완료!")
+            print(f"   저장 위치: {os.path.abspath('./final_results/hyperparameter_grid')}")
                 
         except Exception as e:
-            print(f"⚠️  시각화 생성 중 오류: {e}")
-            print("기본 시각화로 대체합니다...")
+            print(f"⚠️  Hyperparameter 시각화 생성 중 오류: {e}")
+            print("📊 기본 시각화로 대체합니다...")
             
-            # 기본 시각화 (각 데이터셋별로)
+            # 기본 시각화 (각 하이퍼파라미터 조합별로)
             visualizer = ExperimentVisualizer('./final_results')
             
             for dataset_name, dataset_results in all_results.items():
                 for combo_key, combo_results in dataset_results.items():
                     if combo_results:
+                        # 하이퍼파라미터 정보를 파일명에 포함
+                        lr_eps = combo_key.replace('_', '').replace('lr', 'LR').replace('eps', 'Eps')
+                        save_name = f"{dataset_name.lower()}_{lr_eps}_comparison"
                         visualizer.generate_all_visualizations(
                             combo_results, 
                             f"{dataset_name} ({combo_key})"
                         )
+            
+            print(f"✅ 기본 시각화 완료! 각 하이퍼파라미터 조합별 차트 생성됨")
+    else:
+        print(f"\n⚠️  완료된 실험이 없어서 시각화를 생성하지 않습니다.")
     
     # 최종 요약 출력
     print(f"\n📈 Hyperparameter 조합별 성능 요약:")
