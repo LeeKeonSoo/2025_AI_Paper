@@ -661,9 +661,18 @@ def hyperparameter_grid_search_experiment(dataset_type: Optional[int] = None, ep
         for combo_key, combo_results in dataset_results.items():
             if combo_results:
                 print(f"  {combo_key}:")
-                for opt_name, opt_result in combo_results.items():
-                    best_acc = opt_result.get('best_val_acc', 0)
-                    print(f"    {opt_name}: {best_acc:.2f}%")
+                
+                # 🔧 타입 안전성 검증: combo_results가 딕셔너리인지 확인
+                if isinstance(combo_results, dict):
+                    for opt_name, opt_result in combo_results.items():
+                        if isinstance(opt_result, dict):
+                            best_acc = opt_result.get('best_val_acc', 0)
+                            print(f"    {opt_name}: {best_acc:.2f}%")
+                        else:
+                            print(f"    {opt_name}: 결과 없음")
+                else:
+                    # 실험 실패 메시지 출력 (문자열 상태)
+                    print(f"    상태: {combo_results}")
     
     return all_results
 
@@ -861,9 +870,18 @@ def batch_size_comparison_experiment(dataset_type: Optional[int] = None, epochs:
             if batch_results:
                 batch_size = batch_key.split('_')[1]
                 print(f"  배치 사이즈 {batch_size}:")
-                for opt_name, opt_result in batch_results.items():
-                    best_acc = opt_result.get('best_val_acc', 0)
-                    print(f"    {opt_name}: {best_acc:.2f}%")
+                
+                # 🔧 타입 안전성 검증: batch_results가 딕셔너리인지 확인
+                if isinstance(batch_results, dict):
+                    for opt_name, opt_result in batch_results.items():
+                        if isinstance(opt_result, dict):
+                            best_acc = opt_result.get('best_val_acc', 0)
+                            print(f"    {opt_name}: {best_acc:.2f}%")
+                        else:
+                            print(f"    {opt_name}: 결과 없음")
+                else:
+                    # 실험 실패 메시지 출력 (문자열 상태)
+                    print(f"    상태: {batch_results}")
     
     return all_results
 

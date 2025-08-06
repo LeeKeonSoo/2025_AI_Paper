@@ -1461,17 +1461,20 @@ class BatchSizeVisualizer:
         for dataset_name, dataset_results in all_results.items():
             for batch_key, batch_results in dataset_results.items():
                 batch_size = int(batch_key.split('_')[1])
-                for optimizer, results in batch_results.items():
-                    if 'best_val_acc' in results and 'total_training_time' in results:
-                        acc = results['best_val_acc']
-                        time = results['total_training_time'] / 60  # 분 단위
-                        
-                        color = self.colors.get(optimizer, 'gray')
-                        marker_size = 50 + (batch_size - 64) * 2  # 배치 사이즈에 따른 마커 크기
-                        
-                        ax_efficiency.scatter(time, acc, s=marker_size, c=color, alpha=0.7,
-                                           label=f'{optimizer}' if dataset_name == datasets[0] and batch_key == 'batch_64' else "",
-                                           edgecolors='black', linewidth=0.5)
+                
+                # 🔧 타입 안전성 검증: batch_results가 딕셔너리인지 확인
+                if isinstance(batch_results, dict):
+                    for optimizer, results in batch_results.items():
+                        if isinstance(results, dict) and 'best_val_acc' in results and 'total_training_time' in results:
+                            acc = results['best_val_acc']
+                            time = results['total_training_time'] / 60  # 분 단위
+                            
+                            color = self.colors.get(optimizer, 'gray')
+                            marker_size = 50 + (batch_size - 64) * 2  # 배치 사이즈에 따른 마커 크기
+                            
+                            ax_efficiency.scatter(time, acc, s=marker_size, c=color, alpha=0.7,
+                                               label=f'{optimizer}' if dataset_name == datasets[0] and batch_key == 'batch_64' else "",
+                                               edgecolors='black', linewidth=0.5)
         
         ax_efficiency.set_xlabel('Training Time (minutes)')
         ax_efficiency.set_ylabel('Best Validation Accuracy (%)')
@@ -1488,12 +1491,15 @@ class BatchSizeVisualizer:
         for dataset_name, dataset_results in all_results.items():
             for batch_key, batch_results in dataset_results.items():
                 batch_size = batch_key.split('_')[1]
-                for optimizer, results in batch_results.items():
-                    if 'best_val_acc' in results:
-                        stats_data.append([
-                            dataset_name,
-                            batch_size,
-                            optimizer,
+                
+                # 🔧 타입 안전성 검증: batch_results가 딕셔너리인지 확인
+                if isinstance(batch_results, dict):
+                    for optimizer, results in batch_results.items():
+                        if isinstance(results, dict) and 'best_val_acc' in results:
+                            stats_data.append([
+                                dataset_name,
+                                batch_size,
+                                optimizer,
                             f"{results['best_val_acc']:.2f}%",
                             f"{results.get('total_training_time', 0)/60:.1f}min"
                         ])
