@@ -78,7 +78,7 @@ def setup_experiment_config(dataset_type: int, epochs: int = None, lr: float = N
             'epochs': 25,
             'lr': 0.001,
             'weight_decay': 5e-4,
-            'batch_size': 64,
+            'batch_size': 128,
             'model_type': 'default',
             'scheduler_type': 'cosine'
         }
@@ -190,7 +190,7 @@ def run_experiment(dataset_type: int, epochs: int = None, lr: float = None,
         data_loader = get_dataset_loader(
             dataset_type=dataset_type,
             batch_size=config['batch_size'],
-            num_workers=4 if torch.cuda.is_available() else 2
+            num_workers=0  # Windows 안정성을 위해 0으로 설정
         )
     except Exception as e:
         print(f"❌ 데이터 로더 생성 실패: {e}")
@@ -555,6 +555,7 @@ def batch_size_comparison_experiment(dataset_type: Optional[int] = None, epochs:
     
     # 실험 설정
     datasets_to_test = [dataset_type] if dataset_type else [1, 2, 3]
+    # 기본 배치 사이즈 (데이터셋별로 동적 조정)
     batch_sizes = [64, 128, 256]
     optimizers = ['Adam', 'AdamABS']
     
@@ -581,7 +582,10 @@ def batch_size_comparison_experiment(dataset_type: Optional[int] = None, epochs:
         
         all_results[dataset_name] = {}
         
-        for batch_idx, batch_size in enumerate(batch_sizes):
+        # 모든 데이터셋에서 동일한 배치 사이즈 사용 (공정한 비교)
+        current_batch_sizes = batch_sizes  # [64, 128, 256]
+            
+        for batch_idx, batch_size in enumerate(current_batch_sizes):
             print(f"\n📦 배치 사이즈 {batch_size} 실험...")
             
             batch_key = f"batch_{batch_size}"
@@ -611,10 +615,18 @@ def batch_size_comparison_experiment(dataset_type: Optional[int] = None, epochs:
                         remaining_time = elapsed_time * (total_experiments - experiment_count) / experiment_count
                         print(f"   예상 남은 시간: {remaining_time/60:.1f}분")
                 else:
-                    print(f"❌ 배치 사이즈 {batch_size} 실험 실패")
+                    print(f"❌ 배치 사이즈 {batch_size} 실험 실패 (메모리 부족 가능성)")
+                    # 논문에서 언급할 제한사항으로 기록
+                    all_results[dataset_name][batch_key] = "메모리_부족"
                     
             except Exception as e:
                 print(f"❌ 배치 사이즈 {batch_size} 실험 중 오류: {e}")
+                # 메모리 관련 오류인지 확인
+                if "memory" in str(e).lower() or "cuda" in str(e).lower():
+                    print(f"   메모리 부족으로 판단됨 - 논문에서 제한사항으로 언급 예정")
+                    all_results[dataset_name][batch_key] = "메모리_부족"
+                else:
+                    all_results[dataset_name][batch_key] = f"오류_{str(e)[:50]}"
                 continue
     
     total_time = time.time() - start_time

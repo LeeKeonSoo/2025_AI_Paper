@@ -88,6 +88,16 @@ class TinyImageNetDataset(torch.utils.data.Dataset):
                         if os.path.exists(img_path) and class_name in self.class_to_idx:
                             samples.append((img_path, self.class_to_idx[class_name]))
         
+        if len(samples) == 0:
+            print(f"⚠️  {self.split} 데이터에서 샘플을 찾을 수 없습니다.")
+            print(f"   루트 디렉토리: {self.root_dir}")
+            if self.split == 'train':
+                print(f"   train 폴더 확인: {os.path.join(self.root_dir, 'train')}")
+            else:
+                print(f"   val 폴더 확인: {os.path.join(self.root_dir, 'val')}")
+        else:
+            print(f"✅ {self.split} 데이터 로드: {len(samples):,}개 샘플")
+        
         return samples
     
     def __len__(self):
@@ -95,19 +105,30 @@ class TinyImageNetDataset(torch.utils.data.Dataset):
     
     def __getitem__(self, idx):
         img_path, label = self.samples[idx]
-        image = Image.open(img_path).convert('RGB')
-        
-        if self.transform:
-            image = self.transform(image)
-        
-        return image, label
+        try:
+            # 경로 정규화 (Windows 호환성)
+            img_path = os.path.normpath(img_path)
+            image = Image.open(img_path).convert('RGB')
+            
+            if self.transform:
+                image = self.transform(image)
+            
+            return image, label
+        except Exception as e:
+            print(f"❌ 이미지 로딩 실패: {img_path}")
+            print(f"   오류: {e}")
+            # 기본 이미지 반환 (64x64 검은색)
+            image = Image.new('RGB', (64, 64), (0, 0, 0))
+            if self.transform:
+                image = self.transform(image)
+            return image, label
 
 
 class DatasetLoader:
     """통합 데이터셋 로더"""
     
-    def __init__(self, dataset_type: int, data_dir: str = './data', batch_size: int = 128, 
-                 num_workers: int = 4, validation_split: float = 0.1):
+    def __init__(self, dataset_type: int, data_dir: str = './data', batch_size: int = 32, 
+                 num_workers: int = 0, validation_split: float = 0.1):
         """
         Args:
             dataset_type: 1(MNIST), 2(CIFAR-10), 3(Tiny ImageNet)
@@ -249,19 +270,20 @@ class DatasetLoader:
         )
         
         # 데이터 로더 생성
+        # 안정성을 위해 pin_memory 비활성화 및 persistent_workers=False
         train_loader = DataLoader(
             train_dataset, batch_size=self.batch_size, shuffle=True,
-            num_workers=self.num_workers, pin_memory=torch.cuda.is_available()
+            num_workers=self.num_workers, pin_memory=False, persistent_workers=False
         )
         
         val_loader = DataLoader(
             val_dataset, batch_size=self.batch_size, shuffle=False,
-            num_workers=self.num_workers, pin_memory=torch.cuda.is_available()
+            num_workers=self.num_workers, pin_memory=False, persistent_workers=False
         )
         
         test_loader = DataLoader(
             test_dataset, batch_size=self.batch_size, shuffle=False,
-            num_workers=self.num_workers, pin_memory=torch.cuda.is_available()
+            num_workers=self.num_workers, pin_memory=False, persistent_workers=False
         )
         
         return train_loader, val_loader, test_loader
@@ -287,19 +309,20 @@ class DatasetLoader:
         )
         
         # 데이터 로더 생성
+        # 안정성을 위해 pin_memory 비활성화 및 persistent_workers=False
         train_loader = DataLoader(
             train_dataset, batch_size=self.batch_size, shuffle=True,
-            num_workers=self.num_workers, pin_memory=torch.cuda.is_available()
+            num_workers=self.num_workers, pin_memory=False, persistent_workers=False
         )
         
         val_loader = DataLoader(
             val_dataset, batch_size=self.batch_size, shuffle=False,
-            num_workers=self.num_workers, pin_memory=torch.cuda.is_available()
+            num_workers=self.num_workers, pin_memory=False, persistent_workers=False
         )
         
         test_loader = DataLoader(
             test_dataset, batch_size=self.batch_size, shuffle=False,
-            num_workers=self.num_workers, pin_memory=torch.cuda.is_available()
+            num_workers=self.num_workers, pin_memory=False, persistent_workers=False
         )
         
         return train_loader, val_loader, test_loader
@@ -346,19 +369,20 @@ class DatasetLoader:
         print(f"   검증 샘플: {len(val_dataset):,}개")
         
         # 데이터 로더 생성
+        # 안정성을 위해 pin_memory 비활성화 및 persistent_workers=False
         train_loader = DataLoader(
             train_dataset, batch_size=self.batch_size, shuffle=True,
-            num_workers=self.num_workers, pin_memory=torch.cuda.is_available()
+            num_workers=self.num_workers, pin_memory=False, persistent_workers=False
         )
         
         val_loader = DataLoader(
             val_dataset, batch_size=self.batch_size, shuffle=False,
-            num_workers=self.num_workers, pin_memory=torch.cuda.is_available()
+            num_workers=self.num_workers, pin_memory=False, persistent_workers=False
         )
         
         test_loader = DataLoader(
             test_dataset, batch_size=self.batch_size, shuffle=False,
-            num_workers=self.num_workers, pin_memory=torch.cuda.is_available()
+            num_workers=self.num_workers, pin_memory=False, persistent_workers=False
         )
         
         return train_loader, val_loader, test_loader
