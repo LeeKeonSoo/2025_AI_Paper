@@ -30,6 +30,7 @@ import sys
 import time
 from datetime import datetime
 import os
+import gc
 from typing import Optional
 
 # 우리가 만든 모듈들 import
@@ -243,6 +244,10 @@ def run_experiment(dataset_type: int, epochs: int = None, lr: float = None,
     print(f"\n🧪 실험 시작...")
     experiment = OptimizerExperiment(dataset_type, config['model_type'], enable_checkpoints=True)
     
+    # 🔧 실험 시작 전 메모리 정리
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    
     # 체크포인트 재개 옵션 표시
     if resume_training:
         print("🔄 기존 체크포인트에서 훈련 재개 활성화")
@@ -259,6 +264,11 @@ def run_experiment(dataset_type: int, epochs: int = None, lr: float = None,
         scheduler_factory_fn=scheduler_factory,
         resume_from_checkpoint=resume_training
     )
+    
+    # 🔧 실험 완료 후 메모리 정리
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    gc.collect()
     
     total_experiment_time = time.time() - start_time
     
@@ -375,12 +385,22 @@ def hyperparameter_grid_search_experiment(dataset_type: Optional[int] = None, ep
         dataset_name = dataset_names[ds_type]
         print(f"\n🎯 {dataset_name} 데이터셋 실험 시작...")
         
+        # 🔧 데이터셋 변경 시 메모리 정리
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
+        
         all_results[dataset_name] = {}
         
         for lr_idx, lr in enumerate(learning_rates):
             for eps_idx, eps in enumerate(epsilons):
                 combo_key = f"lr_{lr}_eps_{eps:.0e}"
                 print(f"\n🔧 LR={lr}, Epsilon={eps:.0e} 실험...")
+                
+                # 🔧 하이퍼파라미터 조합 변경 시 메모리 정리
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                gc.collect()
                 
                 all_results[dataset_name][combo_key] = {}
                 
@@ -439,6 +459,11 @@ def hyperparameter_grid_search_experiment(dataset_type: Optional[int] = None, ep
                         
                         all_results[dataset_name][combo_key] = experiment_results
                         experiment_count += len(optimizers)
+                        
+                        # 🔧 실험 완료 후 즉시 메모리 정리
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                        gc.collect()
                         
                         # 개별 조합 결과 시각화 생성
                         print(f"📊 {combo_key} 조합 결과 시각화 생성 중...")
@@ -580,10 +605,20 @@ def batch_size_comparison_experiment(dataset_type: Optional[int] = None, epochs:
         dataset_name = dataset_names[ds_type]
         print(f"\n🎯 {dataset_name} 데이터셋 실험 시작...")
         
+        # 🔧 데이터셋 변경 시 메모리 정리
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            print(f"   GPU 메모리 정리 완료")
+        gc.collect()
+        
         all_results[dataset_name] = {}
         
-        # 모든 데이터셋에서 동일한 배치 사이즈 사용 (공정한 비교)
-        current_batch_sizes = batch_sizes  # [64, 128, 256]
+        # Tiny ImageNet의 경우 배치 사이즈 조정 (메모리 절약)
+        if ds_type == 3:  # Tiny ImageNet
+            current_batch_sizes = [32, 64, 128]  # 더 작은 배치 사이즈 사용
+            print(f"   Tiny ImageNet: 메모리 절약을 위해 배치 사이즈 조정 {current_batch_sizes}")
+        else:
+            current_batch_sizes = batch_sizes  # [64, 128, 256]
             
         for batch_idx, batch_size in enumerate(current_batch_sizes):
             print(f"\n📦 배치 사이즈 {batch_size} 실험...")
@@ -591,8 +626,28 @@ def batch_size_comparison_experiment(dataset_type: Optional[int] = None, epochs:
             batch_key = f"batch_{batch_size}"
             all_results[dataset_name][batch_key] = {}
             
+            # 🔧 배치 사이즈 변경 시 메모리 정리
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
+            
             # 해당 배치 사이즈로 실험 실행
             try:
+                # 🔧 메모리 사전 체크 (Tiny ImageNet의 경우)
+                if torch.cuda.is_available() and ds_type == 3:
+                    allocated_memory = torch.cuda.memory_allocated() / (1024**3)  # GB
+                    reserved_memory = torch.cuda.memory_reserved() / (1024**3)  # GB
+                    total_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # GB
+                    free_memory = total_memory - reserved_memory
+                    
+                    print(f"   GPU 메모리 상태: 전체={total_memory:.1f}GB, 예약={reserved_memory:.1f}GB, 여유={free_memory:.1f}GB")
+                    
+                    # 메모리 부족 예상 시 건너뛰기
+                    if free_memory < 1.5 and batch_size > 64:  # 1.5GB 미만이고 큰 배치일 때
+                        print(f"   ⚠️ 메모리 부족 예상 - 배치 사이즈 {batch_size} 건너뜀")
+                        all_results[dataset_name][batch_key] = "메모리_부족_예방"
+                        continue
+                
                 experiment_results = run_experiment(
                     dataset_type=ds_type,
                     epochs=epochs,
@@ -605,28 +660,51 @@ def batch_size_comparison_experiment(dataset_type: Optional[int] = None, epochs:
                     all_results[dataset_name][batch_key] = experiment_results
                     experiment_count += len(optimizers)
                     
+                    # 🔧 성공 후 즉시 메모리 정리
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    gc.collect()
+                    
                     # 진행 상황 출력
                     elapsed_time = time.time() - start_time
-                    progress = experiment_count / total_experiments * 100
-                    print(f"⏱️  진행률: {progress:.1f}% ({experiment_count}/{total_experiments})")
+                    total_planned = len(datasets_to_test) * len(current_batch_sizes) * len(optimizers)
+                    progress = experiment_count / total_planned * 100
+                    print(f"⏱️  진행률: {progress:.1f}% ({experiment_count}/{total_planned})")
                     print(f"   경과 시간: {elapsed_time/60:.1f}분")
                     
-                    if experiment_count < total_experiments:
-                        remaining_time = elapsed_time * (total_experiments - experiment_count) / experiment_count
+                    if experiment_count < total_planned:
+                        remaining_time = elapsed_time * (total_planned - experiment_count) / experiment_count
                         print(f"   예상 남은 시간: {remaining_time/60:.1f}분")
                 else:
                     print(f"❌ 배치 사이즈 {batch_size} 실험 실패 (메모리 부족 가능성)")
-                    # 논문에서 언급할 제한사항으로 기록
-                    all_results[dataset_name][batch_key] = "메모리_부족"
+                    all_results[dataset_name][batch_key] = "실험_실패"
                     
-            except Exception as e:
-                print(f"❌ 배치 사이즈 {batch_size} 실험 중 오류: {e}")
-                # 메모리 관련 오류인지 확인
-                if "memory" in str(e).lower() or "cuda" in str(e).lower():
-                    print(f"   메모리 부족으로 판단됨 - 논문에서 제한사항으로 언급 예정")
-                    all_results[dataset_name][batch_key] = "메모리_부족"
+            except RuntimeError as e:
+                error_msg = str(e)
+                if "out of memory" in error_msg.lower() or "cuda" in error_msg.lower():
+                    print(f"❌ CUDA 메모리 부족: 배치 {batch_size} - {error_msg[:100]}...")
+                    all_results[dataset_name][batch_key] = "CUDA_메모리_부족"
+                    
+                    # 🔧 강제 메모리 정리
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    gc.collect()
+                    
+                    # 더 큰 배치 사이즈는 건너뛰기
+                    remaining_batches = current_batch_sizes[batch_idx+1:]
+                    if remaining_batches:
+                        print(f"   남은 큰 배치 사이즈들 ({remaining_batches}) 건너뜀")
+                        for skip_batch in remaining_batches:
+                            skip_key = f"batch_{skip_batch}"
+                            all_results[dataset_name][skip_key] = "메모리_부족_건너뜀"
+                        break
                 else:
-                    all_results[dataset_name][batch_key] = f"오류_{str(e)[:50]}"
+                    print(f"❌ 기타 오류: {error_msg[:100]}...")
+                    all_results[dataset_name][batch_key] = f"오류_{error_msg[:50]}"
+                continue
+            except Exception as e:
+                print(f"❌ 예상치 못한 오류: {str(e)[:100]}...")
+                all_results[dataset_name][batch_key] = f"예상치못한오류_{str(e)[:50]}"
                 continue
     
     total_time = time.time() - start_time
