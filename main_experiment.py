@@ -211,42 +211,59 @@ def run_experiment(dataset_type: int, epochs: int = None, lr: float = None,
     print(f"   클래스 수: {dataset_info['num_classes']}")
     print(f"   이미지 크기: {dataset_info['image_size']}")
     
-    # 🔧 3. 간단한 데이터 검증 (CUDA device-side assert 방지)
+    # 🔧 3. 강화된 데이터 검증 (CUDA device-side assert 방지)
     print(f"\n🔍 데이터 검증 중...")
     try:
+        # 훈련 데이터 검증
         sample_data, sample_labels = next(iter(data_loader.train_loader))
-        max_label = sample_labels.max().item()
+        train_max_label = sample_labels.max().item()
+        train_min_label = sample_labels.min().item()
         expected_classes = dataset_info['num_classes']
         
-        print(f"   레이블 범위: 0 ~ {max_label}")
+        print(f"   훈련 데이터 레이블 범위: {train_min_label} ~ {train_max_label}")
         print(f"   예상 클래스 수: {expected_classes}")
+        
+        # 검증 데이터 검증
+        val_sample_data, val_sample_labels = next(iter(data_loader.val_loader))
+        val_max_label = val_sample_labels.max().item()
+        val_min_label = val_sample_labels.min().item()
+        
+        print(f"   검증 데이터 레이블 범위: {val_min_label} ~ {val_max_label}")
+        
+        # 🔧 치명적 오류 검사
+        all_max_label = max(train_max_label, val_max_label)
+        all_min_label = min(train_min_label, val_min_label)
+        
+        if all_max_label >= expected_classes:
+            raise ValueError(
+                f"CUDA assertion 방지 실패!\n"
+                f"최대 라벨({all_max_label}) >= 예상 클래스 수({expected_classes})\n"
+                f"훈련: {train_min_label}~{train_max_label}, 검증: {val_min_label}~{val_max_label}\n"
+                f"데이터 로더와 모델의 클래스 수가 일치하지 않습니다."
+            )
+        
+        if all_min_label < 0:
+            raise ValueError(f"음수 라벨 발견: {all_min_label}. 모든 라벨은 0 이상이어야 합니다.")
         
         # 🔧 Tiny ImageNet 전용 상세 검증
         if dataset_type == 3:  # Tiny ImageNet
             print(f"🔧 Tiny ImageNet 상세 검증:")
-            print(f"   배치 크기: {len(sample_labels)}")
-            print(f"   고유 레이블 수: {len(torch.unique(sample_labels))}")
-            print(f"   레이블 분포: {torch.bincount(sample_labels)[:10]}...")  # 처음 10개만
+            print(f"   훈련 배치 크기: {len(sample_labels)}")
+            print(f"   훈련 고유 라벨 수: {len(torch.unique(sample_labels))}")
+            print(f"   검증 고유 라벨 수: {len(torch.unique(val_sample_labels))}")
             
-            # validation 데이터도 확인
-            val_sample_data, val_sample_labels = next(iter(data_loader.val_loader))
-            val_max_label = val_sample_labels.max().item()
-            print(f"   Validation 레이블 범위: 0 ~ {val_max_label}")
-            print(f"   Validation 고유 레이블 수: {len(torch.unique(val_sample_labels))}")
-            
-            if val_max_label >= expected_classes:
-                print(f"❌ Validation 데이터에서 레이블 범위 초과 발견!")
-                print(f"   val_max_label({val_max_label}) >= expected_classes({expected_classes})")
-                return None
-        
-        if max_label >= expected_classes:
-            print(f"❌ 레이블({max_label}) >= 클래스 수({expected_classes}) - 모델 생성 오류!")
-            return None
+            # 클래스 분포 확인 (상위 10개만)
+            train_bincount = torch.bincount(sample_labels)
+            if len(train_bincount) > 10:
+                print(f"   훈련 레이블 분포 (상위10): {train_bincount[:10].tolist()}...")
+            else:
+                print(f"   훈련 레이블 분포: {train_bincount.tolist()}")
         
         print(f"✅ 데이터 검증 통과")
         
     except Exception as e:
         print(f"❌ 데이터 검증 실패: {e}")
+        print(f"   이는 CUDA device-side assertion 오류를 방지하기 위한 안전장치입니다.")
         return None
     
     # 3. 옵티마이저 설정
@@ -265,9 +282,10 @@ def run_experiment(dataset_type: int, epochs: int = None, lr: float = None,
         # 🔧 클래스 수를 명시적으로 전달하여 일치성 보장
         model = create_model(dataset_type, config['model_type'])
         
-        # 🔧 모델 생성 직후 클래스 수 검증
+        # 🔧 모델 생성 직후 클래스 수 검증 (강화됨)
         actual_output_classes = "확인불가"
         try:
+            # 더 포괄적인 모델 출력 클래스 수 확인
             if hasattr(model, 'fc3') and hasattr(model.fc3, 'out_features'):  # MNIST
                 actual_output_classes = model.fc3.out_features
             elif hasattr(model, 'fc') and hasattr(model.fc, 'out_features'):  # ResNet계열
@@ -279,16 +297,33 @@ def run_experiment(dataset_type: int, epochs: int = None, lr: float = None,
                     last_layer = model.classifier[-1]
                     if hasattr(last_layer, 'out_features'):
                         actual_output_classes = last_layer.out_features
+            
+            # 마지막 레이어 직접 검사
+            if actual_output_classes == "확인불가":
+                for module in reversed(list(model.modules())):
+                    if isinstance(module, nn.Linear):
+                        actual_output_classes = module.out_features
+                        break
+                        
         except Exception as e:
             print(f"⚠️ 모델 출력 클래스 수 확인 중 오류: {e}")
         
         expected_classes = dataset_info['num_classes']
         print(f"🔧 모델 클래스 수 검증: 실제={actual_output_classes}, 예상={expected_classes}")
         
-        if isinstance(actual_output_classes, int) and actual_output_classes != expected_classes:
-            print(f"❌ 심각한 오류: 모델 출력 클래스 수({actual_output_classes}) != 데이터 클래스 수({expected_classes})")
-            print(f"   dataset_type={dataset_type}, model_type={config['model_type']}")
-            raise ValueError(f"모델 클래스 수 불일치: {actual_output_classes} != {expected_classes}")
+        # 🔧 치명적 불일치 검사
+        if isinstance(actual_output_classes, int):
+            if actual_output_classes != expected_classes:
+                raise ValueError(
+                    f"모델-데이터 클래스 수 불일치!\n"
+                    f"모델 출력 클래스: {actual_output_classes}\n"
+                    f"데이터 클래스 수: {expected_classes}\n"
+                    f"dataset_type={dataset_type}, model_type={config['model_type']}\n"
+                    f"이는 CUDA device-side assertion 오류의 직접적 원인입니다."
+                )
+            print(f"✅ 모델-데이터 클래스 수 일치 확인됨")
+        else:
+            print(f"⚠️ 모델 출력 클래스 수를 자동 확인할 수 없음. 수동 검증 필요.")
         
         # 모델 요약 출력 (첫 번째 모델에서만)
         if not hasattr(model_factory, '_first_call_done'):

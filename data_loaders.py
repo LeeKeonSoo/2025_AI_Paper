@@ -79,39 +79,73 @@ class TinyImageNetDataset(torch.utils.data.Dataset):
             val_dir = os.path.join(self.root_dir, 'val')
             val_annotations = os.path.join(val_dir, 'val_annotations.txt')
             
+            # validation에서 누락되거나 추가된 클래스 처리
+            val_classes_found = set()
+            
             if os.path.exists(val_annotations):
                 with open(val_annotations, 'r') as f:
                     for line in f:
                         parts = line.strip().split('\t')
-                        img_name = parts[0]
-                        class_name = parts[1]
-                        img_path = os.path.join(val_dir, 'images', img_name)
-                        if os.path.exists(img_path):
-                            if class_name in self.class_to_idx:
+                        if len(parts) >= 2:
+                            img_name = parts[0]
+                            class_name = parts[1]
+                            val_classes_found.add(class_name)
+                            
+                            img_path = os.path.join(val_dir, 'images', img_name)
+                            if os.path.exists(img_path) and class_name in self.class_to_idx:
                                 samples.append((img_path, self.class_to_idx[class_name]))
-                            else:
-                                # validation에 있지만 train에 없는 클래스 발견
-                                print(f"⚠️ 경고: 클래스 '{class_name}'이 train 데이터에 없습니다. 건너뜀.")
+                
+                # 클래스 일치성 검증
+                train_classes = set(self.classes)
+                missing_in_val = train_classes - val_classes_found
+                extra_in_val = val_classes_found - train_classes
+                
+                if missing_in_val:
+                    print(f"⚠️  Validation에서 누락된 클래스: {len(missing_in_val)}개")
+                if extra_in_val:
+                    print(f"⚠️  Validation에만 있는 클래스: {len(extra_in_val)}개 (무시됨)")
         
         if len(samples) == 0:
-            print(f"⚠️  {self.split} 데이터에서 샘플을 찾을 수 없습니다.")
+            print(f"❌ {self.split} 데이터에서 샘플을 찾을 수 없습니다.")
             print(f"   루트 디렉토리: {self.root_dir}")
             if self.split == 'train':
                 print(f"   train 폴더 확인: {os.path.join(self.root_dir, 'train')}")
             else:
                 print(f"   val 폴더 확인: {os.path.join(self.root_dir, 'val')}")
+                print(f"   val_annotations.txt 확인: {os.path.join(self.root_dir, 'val', 'val_annotations.txt')}")
         else:
             print(f"✅ {self.split} 데이터 로드: {len(samples):,}개 샘플")
-            # 라벨 범위 검증 (CUDA assertion 오류 방지)
+            
+            # 🔧 CUDA assertion 오류 방지 - 강화된 라벨 범위 검증
             if samples:
                 labels = [label for _, label in samples]
                 min_label, max_label = min(labels), max(labels)
+                unique_labels = set(labels)
                 num_classes = len(self.classes)
-                print(f"📊 라벨 범위: {min_label} ~ {max_label} (클래스 수: {num_classes})")
                 
+                print(f"📊 라벨 통계:")
+                print(f"   라벨 범위: {min_label} ~ {max_label}")
+                print(f"   고유 라벨 수: {len(unique_labels)}")
+                print(f"   예상 클래스 수: {num_classes}")
+                
+                # 치명적 오류 검사
                 if max_label >= num_classes:
-                    print(f"❌ 경고: 최대 라벨({max_label})이 클래스 수({num_classes})를 초과합니다!")
-                    print(f"   CUDA assertion 오류 발생 가능성 있음")
+                    raise ValueError(
+                        f"CUDA assertion 방지: 최대 라벨({max_label}) >= 클래스 수({num_classes})\n"
+                        f"모델의 출력 클래스 수와 데이터의 라벨이 일치하지 않습니다.\n"
+                        f"이는 CUDA device-side assertion 오류의 주요 원인입니다."
+                    )
+                
+                if min_label < 0:
+                    raise ValueError(f"음수 라벨 발견: {min_label}. 모든 라벨은 0 이상이어야 합니다.")
+                
+                # 경고 메시지
+                if len(unique_labels) != num_classes:
+                    print(f"⚠️  경고: 고유 라벨 수({len(unique_labels)}) != 클래스 수({num_classes})")
+                    
+                missing_labels = set(range(num_classes)) - unique_labels
+                if missing_labels and self.split == 'train':
+                    print(f"⚠️  훈련 데이터에서 누락된 라벨: {sorted(missing_labels)}")
         
         return samples
     
@@ -383,21 +417,32 @@ class DatasetLoader:
         print(f"   훈련 샘플: {len(train_dataset):,}개")
         print(f"   검증 샘플: {len(val_dataset):,}개")
         
-        # 데이터 로더 생성
-        # 안정성을 위해 pin_memory 비활성화 및 persistent_workers=False
+        # 🔧 Tiny ImageNet CUDA 최적화 데이터 로더 설정
+        # CUDA 에러 방지를 위한 보수적 설정
+        optimized_batch_size = min(self.batch_size, 64)  # 배치 크기 제한
+        safe_num_workers = 0  # Tiny ImageNet은 단일 스레드 사용 (안정성 우선)
+        
+        print(f"🔧 Tiny ImageNet 최적화 설정:")
+        print(f"   배치 크기: {self.batch_size} → {optimized_batch_size}")
+        print(f"   워커 수: {self.num_workers} → {safe_num_workers}")
+        print(f"   pin_memory: False (CUDA 안정성)")
+        
         train_loader = DataLoader(
-            train_dataset, batch_size=self.batch_size, shuffle=True,
-            num_workers=self.num_workers, pin_memory=False, persistent_workers=False
+            train_dataset, batch_size=optimized_batch_size, shuffle=True,
+            num_workers=safe_num_workers, pin_memory=False, persistent_workers=False,
+            drop_last=True  # 마지막 불완전한 배치 드롭
         )
         
         val_loader = DataLoader(
-            val_dataset, batch_size=self.batch_size, shuffle=False,
-            num_workers=self.num_workers, pin_memory=False, persistent_workers=False
+            val_dataset, batch_size=optimized_batch_size, shuffle=False,
+            num_workers=safe_num_workers, pin_memory=False, persistent_workers=False,
+            drop_last=False
         )
         
         test_loader = DataLoader(
-            test_dataset, batch_size=self.batch_size, shuffle=False,
-            num_workers=self.num_workers, pin_memory=False, persistent_workers=False
+            test_dataset, batch_size=optimized_batch_size, shuffle=False,
+            num_workers=safe_num_workers, pin_memory=False, persistent_workers=False,
+            drop_last=False
         )
         
         return train_loader, val_loader, test_loader
