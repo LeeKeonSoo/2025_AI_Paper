@@ -211,30 +211,39 @@ def run_experiment(dataset_type: int, epochs: int = None, lr: float = None,
     print(f"   클래스 수: {dataset_info['num_classes']}")
     print(f"   이미지 크기: {dataset_info['image_size']}")
     
-    # 🔧 3. 데이터 검증 추가 (CUDA device-side assert 방지)
+    # 🔧 3. 간단한 데이터 검증 (CUDA device-side assert 방지)
     print(f"\n🔍 데이터 검증 중...")
     try:
         sample_data, sample_labels = next(iter(data_loader.train_loader))
-        print(f"   샘플 배치 형태: data={sample_data.shape}, labels={sample_labels.shape}")
-        print(f"   레이블 타입: {sample_labels.dtype}")
-        print(f"   레이블 범위: min={sample_labels.min()}, max={sample_labels.max()}")
-        
-        # 🚨 핵심 검증: 레이블이 클래스 수를 초과하는지 확인
         max_label = sample_labels.max().item()
         expected_classes = dataset_info['num_classes']
         
+        print(f"   레이블 범위: 0 ~ {max_label}")
+        print(f"   예상 클래스 수: {expected_classes}")
+        
+        # 🔧 Tiny ImageNet 전용 상세 검증
+        if dataset_type == 3:  # Tiny ImageNet
+            print(f"🔧 Tiny ImageNet 상세 검증:")
+            print(f"   배치 크기: {len(sample_labels)}")
+            print(f"   고유 레이블 수: {len(torch.unique(sample_labels))}")
+            print(f"   레이블 분포: {torch.bincount(sample_labels)[:10]}...")  # 처음 10개만
+            
+            # validation 데이터도 확인
+            val_sample_data, val_sample_labels = next(iter(data_loader.val_loader))
+            val_max_label = val_sample_labels.max().item()
+            print(f"   Validation 레이블 범위: 0 ~ {val_max_label}")
+            print(f"   Validation 고유 레이블 수: {len(torch.unique(val_sample_labels))}")
+            
+            if val_max_label >= expected_classes:
+                print(f"❌ Validation 데이터에서 레이블 범위 초과 발견!")
+                print(f"   val_max_label({val_max_label}) >= expected_classes({expected_classes})")
+                return None
+        
         if max_label >= expected_classes:
-            print(f"❌ 심각한 오류 발견!")
-            print(f"   최대 레이블 값: {max_label}")
-            print(f"   예상 클래스 수: {expected_classes}")
-            print(f"   → 레이블이 클래스 수를 초과하여 CUDA assert 오류 발생 예상!")
+            print(f"❌ 레이블({max_label}) >= 클래스 수({expected_classes}) - 모델 생성 오류!")
             return None
         
-        # 레이블 타입 검증 및 수정
-        if sample_labels.dtype != torch.long:
-            print(f"   ⚠️ 레이블 타입을 {sample_labels.dtype} → torch.long으로 변경 권장")
-        
-        print(f"✅ 데이터 검증 통과: 레이블 범위 정상 (0~{max_label} < {expected_classes})")
+        print(f"✅ 데이터 검증 통과")
         
     except Exception as e:
         print(f"❌ 데이터 검증 실패: {e}")
@@ -256,6 +265,31 @@ def run_experiment(dataset_type: int, epochs: int = None, lr: float = None,
         # 🔧 클래스 수를 명시적으로 전달하여 일치성 보장
         model = create_model(dataset_type, config['model_type'])
         
+        # 🔧 모델 생성 직후 클래스 수 검증
+        actual_output_classes = "확인불가"
+        try:
+            if hasattr(model, 'fc3') and hasattr(model.fc3, 'out_features'):  # MNIST
+                actual_output_classes = model.fc3.out_features
+            elif hasattr(model, 'fc') and hasattr(model.fc, 'out_features'):  # ResNet계열
+                actual_output_classes = model.fc.out_features
+            elif hasattr(model, 'classifier'):  # 일부 모델들
+                if hasattr(model.classifier, 'out_features'):
+                    actual_output_classes = model.classifier.out_features
+                elif isinstance(model.classifier, nn.Sequential) and len(model.classifier) > 0:
+                    last_layer = model.classifier[-1]
+                    if hasattr(last_layer, 'out_features'):
+                        actual_output_classes = last_layer.out_features
+        except Exception as e:
+            print(f"⚠️ 모델 출력 클래스 수 확인 중 오류: {e}")
+        
+        expected_classes = dataset_info['num_classes']
+        print(f"🔧 모델 클래스 수 검증: 실제={actual_output_classes}, 예상={expected_classes}")
+        
+        if isinstance(actual_output_classes, int) and actual_output_classes != expected_classes:
+            print(f"❌ 심각한 오류: 모델 출력 클래스 수({actual_output_classes}) != 데이터 클래스 수({expected_classes})")
+            print(f"   dataset_type={dataset_type}, model_type={config['model_type']}")
+            raise ValueError(f"모델 클래스 수 불일치: {actual_output_classes} != {expected_classes}")
+        
         # 모델 요약 출력 (첫 번째 모델에서만)
         if not hasattr(model_factory, '_first_call_done'):
             print(f"\n🏗️  모델 정보:")
@@ -264,37 +298,7 @@ def run_experiment(dataset_type: int, epochs: int = None, lr: float = None,
             print(f"   파라미터 수: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
             print(f"   입력 크기: {model_info['input_size']}")
             print(f"   출력 클래스: {model_info['num_classes']}")
-            
-            # 🔧 모델 출력 차원과 데이터 클래스 수 일치성 검증
-            try:
-                with torch.no_grad():
-                    test_input = torch.randn(1, *dataset_info['image_size'])
-                    if torch.cuda.is_available():
-                        model_temp = model.cuda()
-                        test_input = test_input.cuda()
-                        test_output = model_temp(test_input)
-                        model_temp = model_temp.cpu()
-                    else:
-                        test_output = model(test_input)
-                    
-                    actual_output_classes = test_output.shape[1]
-                    expected_classes = dataset_info['num_classes']
-                    
-                    print(f"   모델 출력 클래스 수: {actual_output_classes}")
-                    print(f"   데이터 클래스 수: {expected_classes}")
-                    
-                    # 🚨 모델-데이터 클래스 수 불일치 검증
-                    if actual_output_classes != expected_classes:
-                        print(f"❌ 모델-데이터 클래스 수 불일치!")
-                        print(f"   → 이것이 CUDA device-side assert 오류의 원인입니다!")
-                        raise ValueError(f"모델 출력 클래스({actual_output_classes}) != 데이터 클래스({expected_classes})")
-                    
-                    print(f"✅ 모델-데이터 클래스 수 일치 확인")
-                    
-            except Exception as model_check_error:
-                print(f"❌ 모델 검증 실패: {model_check_error}")
-                raise model_check_error
-            
+            print(f"   실제 모델 출력: {actual_output_classes}")
             model_factory._first_call_done = True
         
         return model
@@ -322,43 +326,16 @@ def run_experiment(dataset_type: int, epochs: int = None, lr: float = None,
     
     start_time = time.time()
     
-    try:
-        results = experiment.run_comparison_experiment(
-            optimizers_config=optimizers_config,
-            train_loader=data_loader.train_loader,
-            val_loader=data_loader.val_loader,
-            test_loader=data_loader.test_loader,
-            model_factory_fn=model_factory,
-            epochs=config['epochs'],
-            scheduler_factory_fn=scheduler_factory,
-            resume_from_checkpoint=resume_training
-        )
-        
-    except RuntimeError as e:
-        error_msg = str(e)
-        if "device-side assert" in error_msg or "CUDA error" in error_msg:
-            print(f"❌ CUDA device-side assert 오류 발생!")
-            print(f"   오류 메시지: {error_msg}")
-            print(f"   데이터셋: {dataset_name}")
-            print(f"   배치 사이즈: {config['batch_size']}")
-            print(f"   → 레이블 범위와 모델 출력 클래스 수 불일치 가능성 높음")
-            
-            # 메모리 정리
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            gc.collect()
-            
-            return None
-        else:
-            print(f"❌ 기타 RuntimeError: {error_msg}")
-            raise e
-    
-    except Exception as e:
-        print(f"❌ 예상치 못한 오류: {str(e)}")
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        gc.collect()
-        raise e
+    results = experiment.run_comparison_experiment(
+        optimizers_config=optimizers_config,
+        train_loader=data_loader.train_loader,
+        val_loader=data_loader.val_loader,
+        test_loader=data_loader.test_loader,
+        model_factory_fn=model_factory,
+        epochs=config['epochs'],
+        scheduler_factory_fn=scheduler_factory,
+        resume_from_checkpoint=resume_training
+    )
     
     # 🔧 실험 완료 후 메모리 정리
     if torch.cuda.is_available():
