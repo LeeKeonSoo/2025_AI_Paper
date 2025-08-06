@@ -440,6 +440,20 @@ def hyperparameter_grid_search_experiment(dataset_type: Optional[int] = None, ep
                         all_results[dataset_name][combo_key] = experiment_results
                         experiment_count += len(optimizers)
                         
+                        # 개별 조합 결과 시각화 생성
+                        print(f"📊 {combo_key} 조합 결과 시각화 생성 중...")
+                        try:
+                            from visualizer import ExperimentVisualizer
+                            individual_visualizer = ExperimentVisualizer('./final_results/individual_hyperparameters')
+                            combo_title = f"{dataset_name} (LR={lr}, Eps={eps:.0e})"
+                            individual_viz_files = individual_visualizer.generate_all_visualizations(
+                                experiment_results, 
+                                combo_title
+                            )
+                            print(f"   ✅ {combo_key} 시각화 완료")
+                        except Exception as viz_error:
+                            print(f"   ⚠️ {combo_key} 시각화 실패: {viz_error}")
+                        
                         # 진행 상황 출력
                         elapsed_time = time.time() - start_time
                         progress = experiment_count / total_experiments * 100

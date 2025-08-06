@@ -308,6 +308,18 @@ class DatasetLoader:
         """Tiny ImageNet 데이터 로더 생성"""
         tiny_imagenet_dir = os.path.join(self.data_dir, 'tiny-imagenet-200')
         
+        # Tiny ImageNet 디렉토리 존재 확인
+        if not os.path.exists(tiny_imagenet_dir):
+            raise FileNotFoundError(
+                f"Tiny ImageNet 데이터셋을 {tiny_imagenet_dir}에서 찾을 수 없습니다.\n"
+                f"다음 중 하나를 수행해주세요:\n"
+                f"1. http://cs231n.stanford.edu/tiny-imagenet-200.zip 다운로드\n"
+                f"2. {self.data_dir}/tiny-imagenet-200/ 폴더에 압축 해제\n"
+                f"3. train/, val/, words.txt 파일들이 포함되어 있는지 확인"
+            )
+        
+        print(f"📁 Tiny ImageNet 데이터셋 로딩: {tiny_imagenet_dir}")
+        
         # 훈련 데이터셋 (Tiny ImageNet에서 제공하는 train 폴더 사용)
         train_dataset = TinyImageNetDataset(
             root_dir=tiny_imagenet_dir, split='train', transform=train_transform
@@ -322,6 +334,16 @@ class DatasetLoader:
         test_dataset = TinyImageNetDataset(
             root_dir=tiny_imagenet_dir, split='val', transform=test_transform
         )
+        
+        # 데이터셋 크기 검증
+        if len(train_dataset) == 0:
+            raise ValueError("훈련 데이터셋이 비어있습니다. train/ 폴더와 이미지 파일들을 확인해주세요.")
+        if len(val_dataset) == 0:
+            raise ValueError("검증 데이터셋이 비어있습니다. val/ 폴더와 val_annotations.txt를 확인해주세요.")
+            
+        print(f"✅ Tiny ImageNet 데이터셋 로드 완료")
+        print(f"   훈련 샘플: {len(train_dataset):,}개")
+        print(f"   검증 샘플: {len(val_dataset):,}개")
         
         # 데이터 로더 생성
         train_loader = DataLoader(
@@ -355,6 +377,8 @@ class DatasetLoader:
         elif self.dataset_type == 3:  # Tiny ImageNet
             # Tiny ImageNet은 200개 클래스가 있으므로 간략히 표시
             return [f'class_{i}' for i in range(200)]
+        else:
+            return []
     
     def get_sample_batch(self):
         """샘플 배치 반환 (시각화나 디버깅용)"""

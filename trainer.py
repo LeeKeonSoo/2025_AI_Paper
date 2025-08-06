@@ -382,7 +382,7 @@ class OptimizerExperiment:
                  enable_checkpoints: bool = True, weights_dir: str = "./weights"):
         """
         Args:
-            dataset_type: 1(MNIST), 2(CIFAR-10), 3(Fashion-MNIST)
+            dataset_type: 1(MNIST), 2(CIFAR-10), 3(Tiny ImageNet)
             model_type: 모델 타입
             enable_checkpoints: 체크포인트 저장 활성화 여부
             weights_dir: 체크포인트 저장 디렉토리
@@ -393,7 +393,7 @@ class OptimizerExperiment:
         self.enable_checkpoints = enable_checkpoints
         
         # 데이터셋 이름 매핑
-        self.dataset_names = {1: "MNIST", 2: "CIFAR-10", 3: "Fashion-MNIST"}
+        self.dataset_names = {1: "MNIST", 2: "CIFAR-10", 3: "Tiny ImageNet"}
         
         # WeightManager 초기화
         self.weight_manager = WeightManager(weights_dir) if enable_checkpoints else None
