@@ -6,6 +6,8 @@ Author: AI Research
 Date: 2025
 """
 
+import matplotlib
+matplotlib.use('Agg')  # GUI 없는 백엔드 사용
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import seaborn as sns
