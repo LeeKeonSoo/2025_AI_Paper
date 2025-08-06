@@ -42,7 +42,7 @@ class TinyImageNetDataset(torch.utils.data.Dataset):
         self.samples = self._load_samples()
     
     def _load_classes(self):
-        """클래스 목록 로드"""
+        """클래스 목록 로드 (순서 유지!)"""
         words_file = os.path.join(self.root_dir, 'words.txt')
         if os.path.exists(words_file):
             classes = []
@@ -50,13 +50,14 @@ class TinyImageNetDataset(torch.utils.data.Dataset):
                 for line in f:
                     class_id = line.strip().split('\t')[0]
                     classes.append(class_id)
-            return sorted(classes)
+            return classes  # sorted() 제거! 원래 순서 유지
         else:
             # words.txt가 없는 경우 train 폴더에서 클래스 추출
             train_dir = os.path.join(self.root_dir, 'train')
             if os.path.exists(train_dir):
-                return sorted([d for d in os.listdir(train_dir) 
-                              if os.path.isdir(os.path.join(train_dir, d))])
+                classes = [d for d in os.listdir(train_dir) 
+                          if os.path.isdir(os.path.join(train_dir, d))]
+                return sorted(classes)  # 폴더명 기준일 때만 정렬
             else:
                 raise FileNotFoundError(f"Tiny ImageNet 데이터셋을 {self.root_dir}에서 찾을 수 없습니다.")
     
@@ -85,8 +86,12 @@ class TinyImageNetDataset(torch.utils.data.Dataset):
                         img_name = parts[0]
                         class_name = parts[1]
                         img_path = os.path.join(val_dir, 'images', img_name)
-                        if os.path.exists(img_path) and class_name in self.class_to_idx:
-                            samples.append((img_path, self.class_to_idx[class_name]))
+                        if os.path.exists(img_path):
+                            if class_name in self.class_to_idx:
+                                samples.append((img_path, self.class_to_idx[class_name]))
+                            else:
+                                # validation에 있지만 train에 없는 클래스 발견
+                                print(f"⚠️ 경고: 클래스 '{class_name}'이 train 데이터에 없습니다. 건너뜀.")
         
         if len(samples) == 0:
             print(f"⚠️  {self.split} 데이터에서 샘플을 찾을 수 없습니다.")
@@ -97,6 +102,16 @@ class TinyImageNetDataset(torch.utils.data.Dataset):
                 print(f"   val 폴더 확인: {os.path.join(self.root_dir, 'val')}")
         else:
             print(f"✅ {self.split} 데이터 로드: {len(samples):,}개 샘플")
+            # 라벨 범위 검증 (CUDA assertion 오류 방지)
+            if samples:
+                labels = [label for _, label in samples]
+                min_label, max_label = min(labels), max(labels)
+                num_classes = len(self.classes)
+                print(f"📊 라벨 범위: {min_label} ~ {max_label} (클래스 수: {num_classes})")
+                
+                if max_label >= num_classes:
+                    print(f"❌ 경고: 최대 라벨({max_label})이 클래스 수({num_classes})를 초과합니다!")
+                    print(f"   CUDA assertion 오류 발생 가능성 있음")
         
         return samples
     
