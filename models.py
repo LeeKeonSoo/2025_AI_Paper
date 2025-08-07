@@ -264,15 +264,16 @@ class BasicBlock(nn.Module):
 
 
 class ResNet18(nn.Module):
-    """ResNet-18 for Tiny ImageNet"""
+    """개선된 ResNet-18 for Tiny ImageNet (60% 정확도 목표)"""
     
-    def __init__(self, num_classes: int = 200, dropout_rate: float = 0.2):
+    def __init__(self, num_classes: int = 200, dropout_rate: float = 0.3):
         super(ResNet18, self).__init__()
         self.in_planes = 64
         
-        # 첫 번째 컨볼루션 (Tiny ImageNet은 64x64이므로 stride=1 사용)
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
+        # 첫 번째 컨볼루션 - Tiny ImageNet에 최적화
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         
         # ResNet layers
         self.layer1 = self._make_layer(BasicBlock, 64, 2, stride=1)
@@ -302,15 +303,20 @@ class ResNet18(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.Linear):
-                nn.init.normal_(m.weight, 0, 0.01)
-                nn.init.constant_(m.bias, 0)
+                # 개선된 Linear layer 초기화
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
     
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
+        out = self.maxpool(out)
+        
         out = self.layer1(out)
         out = self.layer2(out)
         out = self.layer3(out)
         out = self.layer4(out)
+        
         out = self.avgpool(out)
         out = torch.flatten(out, 1)
         out = self.dropout(out)

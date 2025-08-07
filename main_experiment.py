@@ -82,11 +82,11 @@ def setup_experiment_config(dataset_type: int, epochs: int = None, lr: float = N
             'model_type': 'default',
             'scheduler_type': 'cosine'
         },
-        3: {  # Tiny ImageNet
-            'epochs': 25,
-            'lr': 0.001,
-            'weight_decay': 5e-4,
-            'batch_size': 128,
+        3: {  # Tiny ImageNet - 개선된 설정
+            'epochs': 50,  # 더 많은 에포크
+            'lr': 0.0003,  # 더 낮은 학습률
+            'weight_decay': 1e-4,  # 더 낮은 weight decay
+            'batch_size': 64,  # 더 작은 배치 크기
             'model_type': 'default',
             'scheduler_type': 'cosine'
         }

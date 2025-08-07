@@ -198,17 +198,20 @@ class DatasetLoader:
                 transforms.Normalize(info['mean'], info['std'])
             ])
             
-        elif self.dataset_type == 3:  # Tiny ImageNet
+        elif self.dataset_type == 3:  # Tiny ImageNet - 개선된 데이터 증강
             train_transform = transforms.Compose([
-                transforms.RandomCrop(64, padding=8),
+                transforms.Resize(72),  # 먼저 크기 늘리기
+                transforms.RandomCrop(64),  # 원본 크기로 자르기
                 transforms.RandomHorizontalFlip(p=0.5),
-                transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-                transforms.RandomRotation(15),
+                transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
+                transforms.RandomRotation(10),
                 transforms.ToTensor(),
-                transforms.Normalize(info['mean'], info['std'])
+                transforms.Normalize(info['mean'], info['std']),
+                transforms.RandomErasing(p=0.1)  # 추가 정규화
             ])
             
             test_transform = transforms.Compose([
+                transforms.Resize(64),  # 정확한 크기로 리사이즈
                 transforms.ToTensor(),
                 transforms.Normalize(info['mean'], info['std'])
             ])
