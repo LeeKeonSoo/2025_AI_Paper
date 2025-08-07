@@ -264,16 +264,21 @@ class BasicBlock(nn.Module):
 
 
 class ResNet18(nn.Module):
-    """개선된 ResNet-18 for Tiny ImageNet (60% 정확도 목표)"""
+    """개선된 ResNet-18 for Tiny ImageNet (오버피팅 방지 강화)"""
     
-    def __init__(self, num_classes: int = 200, dropout_rate: float = 0.3):
+    def __init__(self, num_classes: int = 200, dropout_rate: float = 0.4):
         super(ResNet18, self).__init__()
         self.in_planes = 64
         
         # 첫 번째 컨볼루션 - Tiny ImageNet에 최적화
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
+        self.bn1 = nn.BatchNorm2d(64, momentum=0.01, eps=1e-5)  # 🔧 더 안정적인 BN
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        
+        # 🔧 중간 레이어 드롭아웃 추가
+        self.dropout1 = nn.Dropout2d(p=0.1)  # 초기 단계 약한 드롭아웃
+        self.dropout2 = nn.Dropout2d(p=0.2)  # 중간 단계
+        self.dropout3 = nn.Dropout2d(p=0.3)  # 후반 단계
         
         # ResNet layers
         self.layer1 = self._make_layer(BasicBlock, 64, 2, stride=1)
@@ -282,8 +287,20 @@ class ResNet18(nn.Module):
         self.layer4 = self._make_layer(BasicBlock, 512, 2, stride=2)
         
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.dropout = nn.Dropout(dropout_rate)
-        self.fc = nn.Linear(512 * BasicBlock.expansion, num_classes)
+        
+        # 🔧 최종 분류기 정규화 강화
+        self.fc = nn.Sequential(
+            nn.Dropout(dropout_rate),           # 0.4
+            nn.Linear(512 * BasicBlock.expansion, 256),
+            nn.BatchNorm1d(256),               # 배치 정규화 추가
+            nn.ReLU(),
+            nn.Dropout(dropout_rate * 0.6),    # 0.24 (점진적 감소)
+            nn.Linear(256, 128),
+            nn.BatchNorm1d(128),               # 배치 정규화 추가  
+            nn.ReLU(),
+            nn.Dropout(dropout_rate * 0.3),    # 0.12 (더 감소)
+            nn.Linear(128, num_classes)
+        )
         
         self._initialize_weights()
     
@@ -309,17 +326,25 @@ class ResNet18(nn.Module):
                     nn.init.constant_(m.bias, 0)
     
     def forward(self, x):
+        # 🔧 중간 레이어에서 드롭아웃 적용
         out = F.relu(self.bn1(self.conv1(x)))
         out = self.maxpool(out)
+        out = self.dropout1(out)  # 첫 번째 드롭아웃
         
         out = self.layer1(out)
+        out = self.dropout2(out)  # 두 번째 드롭아웃
+        
         out = self.layer2(out)
+        out = self.dropout2(out)  # 세 번째 드롭아웃
+        
         out = self.layer3(out)
+        out = self.dropout3(out)  # 네 번째 드롭아웃
+        
         out = self.layer4(out)
+        out = self.dropout3(out)  # 다섯 번째 드롭아웃
         
         out = self.avgpool(out)
         out = torch.flatten(out, 1)
-        out = self.dropout(out)
         out = self.fc(out)
         return out
 
