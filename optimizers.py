@@ -11,6 +11,159 @@ import torch.nn as nn
 from typing import Dict, List, Any, Optional, Tuple
 
 
+class CustomAdaGrad(torch.optim.Optimizer):
+    """
+    AdaGrad 최적화 알고리즘 직접 구현
+    
+    수식:
+    G_t = G_{t-1} + g_t²
+    θ_t = θ_{t-1} - (α / (√G_t + ε)) * g_t
+    """
+    
+    def __init__(self, params, lr=1e-2, eps=1e-10, lr_decay=0, weight_decay=0, 
+                 initial_accumulator_value=0):
+        if not 0.0 <= lr:
+            raise ValueError(f"Invalid learning rate: {lr}")
+        if not 0.0 <= eps:
+            raise ValueError(f"Invalid epsilon value: {eps}")
+        if not 0.0 <= lr_decay:
+            raise ValueError(f"Invalid lr_decay value: {lr_decay}")
+        if not 0.0 <= weight_decay:
+            raise ValueError(f"Invalid weight_decay value: {weight_decay}")
+        if not 0.0 <= initial_accumulator_value:
+            raise ValueError(f"Invalid initial_accumulator_value value: {initial_accumulator_value}")
+            
+        defaults = dict(lr=lr, eps=eps, lr_decay=lr_decay, weight_decay=weight_decay,
+                       initial_accumulator_value=initial_accumulator_value)
+        super(CustomAdaGrad, self).__init__(params, defaults)
+    
+    def step(self, closure=None):
+        """AdaGrad 최적화 스텝 수행"""
+        loss = None
+        if closure is not None:
+            loss = closure()
+        
+        for group in self.param_groups:
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                
+                grad = p.grad.data
+                if grad.dtype in {torch.float16, torch.bfloat16}:
+                    grad = grad.float()
+                
+                # Weight decay 적용
+                if group['weight_decay'] != 0:
+                    grad = grad.add(p.data, alpha=group['weight_decay'])
+                
+                state = self.state[p]
+                
+                # State 초기화
+                if len(state) == 0:
+                    state['step'] = 0
+                    # Sum of squared gradients
+                    state['sum'] = torch.full_like(p.data, group['initial_accumulator_value']).float()
+                
+                state['step'] += 1
+                
+                # Learning rate decay
+                clr = group['lr'] / (1 + (state['step'] - 1) * group['lr_decay'])
+                
+                # Accumulate squared gradients: G_t = G_{t-1} + g_t²
+                state['sum'].add_(grad.pow(2))
+                
+                # Compute denominator: √G_t + ε
+                denominator = state['sum'].sqrt().add_(group['eps'])
+                
+                # Parameter update: θ_t = θ_{t-1} - (α / (√G_t + ε)) * g_t
+                p.data.add_(grad / denominator, alpha=-clr)
+        
+        return loss
+
+
+class CustomRMSProp(torch.optim.Optimizer):
+    """
+    RMSProp 최적화 알고리즘 직접 구현
+    
+    수식:
+    v_t = α * v_{t-1} + (1 - α) * g_t²
+    θ_t = θ_{t-1} - (lr / (√v_t + ε)) * g_t
+    """
+    
+    def __init__(self, params, lr=1e-2, alpha=0.99, eps=1e-8, weight_decay=0, momentum=0, centered=False):
+        if not 0.0 <= lr:
+            raise ValueError(f"Invalid learning rate: {lr}")
+        if not 0.0 <= eps:
+            raise ValueError(f"Invalid epsilon value: {eps}")
+        if not 0.0 <= momentum:
+            raise ValueError(f"Invalid momentum value: {momentum}")
+        if not 0.0 <= weight_decay:
+            raise ValueError(f"Invalid weight_decay value: {weight_decay}")
+        if not 0.0 <= alpha:
+            raise ValueError(f"Invalid alpha value: {alpha}")
+            
+        defaults = dict(lr=lr, momentum=momentum, alpha=alpha, eps=eps, centered=centered, weight_decay=weight_decay)
+        super(CustomRMSProp, self).__init__(params, defaults)
+    
+    def step(self, closure=None):
+        """RMSProp 최적화 스텝 수행"""
+        loss = None
+        if closure is not None:
+            loss = closure()
+        
+        for group in self.param_groups:
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                
+                grad = p.grad.data
+                if grad.dtype in {torch.float16, torch.bfloat16}:
+                    grad = grad.float()
+                
+                # Weight decay 적용
+                if group['weight_decay'] != 0:
+                    grad = grad.add(p.data, alpha=group['weight_decay'])
+                
+                state = self.state[p]
+                
+                # State 초기화
+                if len(state) == 0:
+                    state['step'] = 0
+                    # Exponential moving average of squared gradients
+                    state['square_avg'] = torch.zeros_like(p.data).float()
+                    if group['momentum'] > 0:
+                        state['momentum_buffer'] = torch.zeros_like(p.data).float()
+                    if group['centered']:
+                        # Exponential moving average of gradients
+                        state['grad_avg'] = torch.zeros_like(p.data).float()
+                
+                square_avg = state['square_avg']
+                alpha = group['alpha']
+                
+                state['step'] += 1
+                
+                # Exponential moving average of squared gradients: v_t = α * v_{t-1} + (1 - α) * g_t²
+                square_avg.mul_(alpha).add_(grad.pow(2), alpha=1 - alpha)
+                
+                if group['centered']:
+                    # Centered RMSProp
+                    grad_avg = state['grad_avg']
+                    grad_avg.mul_(alpha).add_(grad, alpha=1 - alpha)
+                    avg = square_avg.sub(grad_avg.pow(2)).sqrt_().add_(group['eps'])
+                else:
+                    avg = square_avg.sqrt().add_(group['eps'])
+                
+                if group['momentum'] > 0:
+                    buf = state['momentum_buffer']
+                    buf.mul_(group['momentum']).add_(grad / avg)
+                    p.data.add_(buf, alpha=-group['lr'])
+                else:
+                    # Parameter update: θ_t = θ_{t-1} - (lr / (√v_t + ε)) * g_t
+                    p.data.add_(grad / avg, alpha=-group['lr'])
+        
+        return loss
+
+
 class CustomAdam(torch.optim.Optimizer):
     """
     Adam 최적화 알고리즘 직접 구현
@@ -272,11 +425,11 @@ def create_optimizer(optimizer_name: str, params, lr: float = 1e-3,
     최적화 알고리즘 팩토리 함수
     
     Args:
-        optimizer_name: 최적화 알고리즘 이름 ('adam', 'adamw', 'adamabs')
+        optimizer_name: 최적화 알고리즘 이름 ('adagrad', 'rmsprop', 'adam', 'adamw', 'adamabs')
         params: 모델 파라미터
         lr: 학습률
         weight_decay: 가중치 감소
-        **kwargs: 추가 파라미터 (betas, eps 등)
+        **kwargs: 추가 파라미터 (betas, eps, alpha, momentum 등)
     
     Returns:
         torch.optim.Optimizer: 최적화 알고리즘 인스턴스
@@ -284,22 +437,55 @@ def create_optimizer(optimizer_name: str, params, lr: float = 1e-3,
     optimizer_name = optimizer_name.lower()
     
     # 기본 파라미터 설정
-    betas = kwargs.get('betas', (0.9, 0.999))
     eps = kwargs.get('eps', 1e-8)
     
-    if optimizer_name == 'adam':
+    if optimizer_name == 'adagrad':
+        eps = kwargs.get('eps', 1e-10)  # AdaGrad는 더 작은 eps 사용
+        lr_decay = kwargs.get('lr_decay', 0)
+        initial_accumulator_value = kwargs.get('initial_accumulator_value', 0)
+        return CustomAdaGrad(params, lr=lr, eps=eps, lr_decay=lr_decay, 
+                           weight_decay=weight_decay, 
+                           initial_accumulator_value=initial_accumulator_value)
+    
+    elif optimizer_name == 'rmsprop':
+        alpha = kwargs.get('alpha', 0.99)
+        momentum = kwargs.get('momentum', 0)
+        centered = kwargs.get('centered', False)
+        return CustomRMSProp(params, lr=lr, alpha=alpha, eps=eps, weight_decay=weight_decay,
+                           momentum=momentum, centered=centered)
+    
+    elif optimizer_name == 'adam':
+        betas = kwargs.get('betas', (0.9, 0.999))
         return CustomAdam(params, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+    
     elif optimizer_name == 'adamw':
+        betas = kwargs.get('betas', (0.9, 0.999))
         return CustomAdamW(params, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+    
     elif optimizer_name == 'adamabs':
+        betas = kwargs.get('betas', (0.9, 0.999))
         return CustomAdamABS(params, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+    
     else:
-        raise ValueError(f"Unknown optimizer: {optimizer_name}. Supported: 'adam', 'adamw', 'adamabs'")
+        raise ValueError(f"Unknown optimizer: {optimizer_name}. "
+                        f"Supported: 'adagrad', 'rmsprop', 'adam', 'adamw', 'adamabs'")
 
 
 def get_optimizer_info():
     """최적화 알고리즘 정보 반환"""
     info = {
+        'adagrad': {
+            'name': 'Custom AdaGrad',
+            'description': 'AdaGrad (적응적 gradient 누적) 최적화 알고리즘',
+            'features': ['누적 gradient 제곱합', '적응적 학습률', '학습률 감소'],
+            'formula': 'θ_t = θ_{t-1} - (α / (√G_t + ε)) * g_t, G_t = G_{t-1} + g_t²'
+        },
+        'rmsprop': {
+            'name': 'Custom RMSProp',
+            'description': 'RMSProp (Root Mean Square Propagation) 최적화 알고리즘',
+            'features': ['지수이동평균', '적응적 학습률', '모멘텀 옵션', 'Centered 옵션'],
+            'formula': 'θ_t = θ_{t-1} - (lr / (√v_t + ε)) * g_t, v_t = α * v_{t-1} + (1-α) * g_t²'
+        },
         'adam': {
             'name': 'Custom Adam',
             'description': 'Adam 최적화 알고리즘 직접 구현',
@@ -324,39 +510,59 @@ def get_optimizer_info():
 
 def compare_optimizers_theory():
     """최적화 알고리즘 이론적 차이점 분석"""
-    print("=" * 80)
+    print("=" * 90)
     print("Custom Optimizers 이론적 차이점")
-    print("=" * 80)
+    print("=" * 90)
     
-    print("\n1. Adam (기준):")
+    print("\n1. AdaGrad (기초적 적응적 알고리즘):")
+    print("   - 누적합: G_t = G_{t-1} + g_t²")
+    print("   - 업데이트: θ_t = θ_{t-1} - (α / (√G_t + ε)) * g_t")
+    print("   - 특징: 학습률이 시간에 따라 감소, sparse features에 효과적")
+    print("   - 문제점: 학습률이 너무 빨리 0에 수렴")
+    
+    print("\n2. RMSProp (AdaGrad 개선):")
+    print("   - 지수이동평균: v_t = α * v_{t-1} + (1 - α) * g_t²")
+    print("   - 업데이트: θ_t = θ_{t-1} - (lr / (√v_t + ε)) * g_t")
+    print("   - 특징: AdaGrad의 학습률 감소 문제 해결, 지수적 감쇠 사용")
+    print("   - 옵션: 모멘텀, centered 버전 지원")
+
+    print("\n3. Adam (RMSProp + 모멘텀):")
+    print("   - 1차 모멘텀: m_t = β₁ * m_{t-1} + (1 - β₁) * g_t")
     print("   - 2차 모멘텀: v_t = β₂ * v_{t-1} + (1 - β₂) * g_t²")
     print("   - 업데이트: θ_t = θ_{t-1} - α * m̂_t / (√v̂_t + ε)")
-    print("   - 특징: 표준 Adam, 제곱근 연산 포함")
+    print("   - 특징: 편향 보정, 1차와 2차 모멘텀 결합")
     
-    print("\n2. AdamW:")
+    print("\n4. AdamW (Adam + 분리된 가중치 감소):")
     print("   - 2차 모멘텀: v_t = β₂ * v_{t-1} + (1 - β₂) * g_t² (Adam과 동일)")
     print("   - 업데이트: θ_t = θ_{t-1} - α * (m̂_t / (√v̂_t + ε) + λ * θ_{t-1})")
-    print("   - 특징: 분리된 가중치 감소, 정규화 개선")
+    print("   - 특징: 가중치 감소를 gradient에서 분리, 정규화 효과 개선")
     
-    print("\n3. AdamABS (새로운 아이디어):")
+    print("\n5. AdamABS (새로운 아이디어):")
+    print("   - 1차 모멘텀: m_t = β₁ * m_{t-1} + (1 - β₁) * g_t (Adam과 동일)")
     print("   - 2차 모멘텀: v_t = β₂ * v_{t-1} + (1 - β₂) * |g_t| ← 절댓값")
     print("   - 업데이트: θ_t = θ_{t-1} - α * m̂_t / (v̂_t + ε) ← 제곱근 제거")
     print("   - 특징: 계산 효율성, 이상치 강건성")
     
+    print("\n6. 알고리즘 진화:")
+    print("   AdaGrad → RMSProp → Adam → AdamW")
+    print("                    ↘")
+    print("                      AdamABS (병렬 발전)")
     
-    print("\n5. 주요 혁신점 (AdamABS):")
-    print("   ✓ 절댓값 사용: 이상치(outlier)에 덜 민감")
-    print("   ✓ 제곱근 제거: 계산 효율성 향상")
-    print("   ✓ 수치 안정성: 더 안정적인 학습")
-    print("   ✓ 메모리 효율성: 동일한 메모리 사용량")
+    print("\n7. 주요 혁신점:")
+    print("   AdaGrad: 적응적 학습률 도입")
+    print("   RMSProp: 지수적 감쇠로 학습률 소실 문제 해결")
+    print("   Adam: 1차 모멘텀과 편향 보정 추가")
+    print("   AdamW: 가중치 감소 분리로 정규화 개선")
+    print("   AdamABS: 계산 효율성과 수치 안정성 향상")
     
-    print("\n6. 예상 장점:")
-    print("   - 빠른 연산: sqrt() 연산 제거")
-    print("   - 안정성: 절댓값으로 인한 수치 안정성")
-    print("   - 강건성: 이상치 gradient에 덜 민감")
-    print("   - 수렴성: 더 부드러운 수렴 가능")
+    print("\n8. 예상 성능 특성:")
+    print("   - AdaGrad: 초기 빠른 수렴, 후반 학습률 소실")
+    print("   - RMSProp: 안정적 수렴, 하이퍼파라미터 민감")
+    print("   - Adam: 빠른 수렴, 일반화 성능 우수")
+    print("   - AdamW: Adam 대비 정규화 효과 개선")
+    print("   - AdamABS: Adam과 유사한 성능, 계산 효율 개선")
     
-    print("=" * 80)
+    print("=" * 90)
 
 
 def benchmark_operations(device='cuda', size=1000000, iterations=1000):
@@ -438,12 +644,12 @@ if __name__ == "__main__":
     )
     
     # 모든 옵티마이저 테스트
-    optimizer_names = ['adam', 'adamw', 'adamabs']
+    optimizer_names = ['adagrad', 'rmsprop', 'adam', 'adamw', 'adamabs']
     
     for opt_name in optimizer_names:
         try:
             optimizer = create_optimizer(opt_name, model.parameters(), lr=0.001, weight_decay=1e-4)
-            print(f"✓ {opt_name.upper()} 생성 성공")
+            print(f"✓ {opt_name.upper()} 생성 성공: {type(optimizer).__name__}")
         except Exception as e:
             print(f"✗ {opt_name.upper()} 생성 실패: {e}")
     
