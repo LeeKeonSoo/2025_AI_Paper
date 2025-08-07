@@ -90,17 +90,38 @@ class ExperimentVisualizer:
             results_dir: 결과 저장 디렉토리
         """
         self.results_dir = results_dir
+        # 5개 옵티마이저용 색상 팔레트 (색약자 친화적)
         self.colors = {
-            'Adam': '#1f77b4',
-            'AdamW': '#ff7f0e', 
-            'AdamABS': '#2ca02c'
+            'AdaGrad': '#e41a1c',    # 빨간색 (구별하기 쉬운 밝은 빨강)
+            'RMSProp': '#377eb8',    # 파란색 (기본 파랑)
+            'Adam': '#4daf4a',       # 초록색 (밝은 초록)  
+            'AdamW': '#984ea3',      # 보라색 (진한 보라)
+            'AdamABS': '#ff7f00'     # 주황색 (밝은 주황)
         }
+        
+        # Fallback 색상 리스트 (더 많은 옵티마이저나 알 수 없는 옵티마이저용)
+        self.fallback_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
+                               '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
         
         # 결과 디렉토리 생성
         os.makedirs(results_dir, exist_ok=True)
         
-        print(f"📊 ExperimentVisualizer 초기화")
-        print(f"   결과 저장 경로: {os.path.abspath(results_dir)}")
+    def get_color(self, optimizer_name: str, index: int = 0) -> str:
+        """
+        옵티마이저에 맞는 색상 반환
+        
+        Args:
+            optimizer_name: 옵티마이저 이름
+            index: fallback 색상 인덱스
+            
+        Returns:
+            str: 색상 코드
+        """
+        if optimizer_name in self.colors:
+            return self.colors[optimizer_name]
+        else:
+            # 알 수 없는 옵티마이저는 fallback 색상 사용
+            return self.fallback_colors[index % len(self.fallback_colors)]
     
     def plot_training_curves(self, experiment_results: Dict[str, Any], 
                            dataset_name: str, save_name: Optional[str] = None) -> Optional[str]:
@@ -119,17 +140,21 @@ class ExperimentVisualizer:
         fig.suptitle(f'{dataset_name} Optimizer Comparison - Training Curves', 
                     fontsize=16, fontweight='bold')
         
+        # 옵티마이저 리스트와 색상 사전 준비 (5개 옵티마이저 지원)
+        opt_names = list(experiment_results.keys())
+        colors_dict = {name: self.get_color(name, i) for i, name in enumerate(opt_names)}
+        
         # 1. 훈련 손실
         ax = axes[0, 0]
         for opt_name, results in experiment_results.items():
             history = results['training_history']
-            color = self.colors.get(opt_name, 'black')
-            ax.plot(history['train_loss'], label=opt_name, color=color, linewidth=2)
+            color = colors_dict[opt_name]
+            ax.plot(history['train_loss'], label=opt_name, color=color, linewidth=2.5, alpha=0.8)
         
         ax.set_title('Training Loss', fontsize=14, fontweight='bold')
         ax.set_xlabel('Epoch')
         ax.set_ylabel('Loss')
-        ax.legend()
+        ax.legend(fontsize=9, ncol=1, loc='upper right')
         ax.grid(True, alpha=0.3)
         ax.set_yscale('log')
         
@@ -137,13 +162,13 @@ class ExperimentVisualizer:
         ax = axes[0, 1]
         for opt_name, results in experiment_results.items():
             history = results['training_history']
-            color = self.colors.get(opt_name, 'black')
-            ax.plot(history['val_loss'], label=opt_name, color=color, linewidth=2)
+            color = colors_dict[opt_name]
+            ax.plot(history['val_loss'], label=opt_name, color=color, linewidth=2.5, alpha=0.8)
         
         ax.set_title('Validation Loss', fontsize=14, fontweight='bold')
         ax.set_xlabel('Epoch')
         ax.set_ylabel('Loss')
-        ax.legend()
+        ax.legend(fontsize=9, ncol=1, loc='upper right')
         ax.grid(True, alpha=0.3)
         ax.set_yscale('log')
         
@@ -151,40 +176,40 @@ class ExperimentVisualizer:
         ax = axes[0, 2]
         for opt_name, results in experiment_results.items():
             history = results['training_history']
-            color = self.colors.get(opt_name, 'black')
-            ax.plot(history['train_acc'], label=opt_name, color=color, linewidth=2)
+            color = colors_dict[opt_name]
+            ax.plot(history['train_acc'], label=opt_name, color=color, linewidth=2.5, alpha=0.8)
         
         ax.set_title('Training Accuracy', fontsize=14, fontweight='bold')
         ax.set_xlabel('Epoch')
         ax.set_ylabel('Accuracy (%)')
-        ax.legend()
+        ax.legend(fontsize=9, ncol=1, loc='lower right')
         ax.grid(True, alpha=0.3)
         
         # 4. 검증 정확도
         ax = axes[1, 0]
         for opt_name, results in experiment_results.items():
             history = results['training_history']
-            color = self.colors.get(opt_name, 'black')
-            ax.plot(history['val_acc'], label=opt_name, color=color, linewidth=2)
+            color = colors_dict[opt_name]
+            ax.plot(history['val_acc'], label=opt_name, color=color, linewidth=2.5, alpha=0.8)
         
         ax.set_title('Validation Accuracy', fontsize=14, fontweight='bold')
         ax.set_xlabel('Epoch')
         ax.set_ylabel('Accuracy (%)')
-        ax.legend()
+        ax.legend(fontsize=9, ncol=1, loc='lower right')
         ax.grid(True, alpha=0.3)
         
         # 5. 학습률 변화
         ax = axes[1, 1]
         for opt_name, results in experiment_results.items():
             history = results['training_history']
-            color = self.colors.get(opt_name, 'black')
+            color = colors_dict[opt_name]
             if 'lr_history' in history and history['lr_history']:
-                ax.plot(history['lr_history'], label=opt_name, color=color, linewidth=2)
+                ax.plot(history['lr_history'], label=opt_name, color=color, linewidth=2.5, alpha=0.8)
         
         ax.set_title('Learning Rate Schedule', fontsize=14, fontweight='bold')
         ax.set_xlabel('Epoch')
         ax.set_ylabel('Learning Rate')
-        ax.legend()
+        ax.legend(fontsize=9, ncol=1, loc='upper right')
         ax.grid(True, alpha=0.3)
         ax.set_yscale('log')
         
@@ -192,17 +217,19 @@ class ExperimentVisualizer:
         ax = axes[1, 2]
         for opt_name, results in experiment_results.items():
             history = results['training_history']
-            color = self.colors.get(opt_name, 'black')
+            color = colors_dict[opt_name]
             if 'epoch_times' in history:
-                ax.plot(history['epoch_times'], label=opt_name, color=color, linewidth=2)
+                ax.plot(history['epoch_times'], label=opt_name, color=color, linewidth=2.5, alpha=0.8)
         
         ax.set_title('Epoch Training Time', fontsize=14, fontweight='bold')
         ax.set_xlabel('Epoch')
         ax.set_ylabel('Time (seconds)')
-        ax.legend()
+        ax.legend(fontsize=9, ncol=1, loc='upper left')
         ax.grid(True, alpha=0.3)
         
-        plt.tight_layout()
+        # 5개 옵티마이저 범례를 고려한 레이아웃 조정
+        plt.tight_layout(pad=2.0)
+        plt.subplots_adjust(hspace=0.3, wspace=0.3)
         
         # 파일 저장
         if save_name is None:
@@ -211,6 +238,96 @@ class ExperimentVisualizer:
         
         save_path = os.path.join(self.results_dir, save_name) if _SAVE_PLOTS else None
         _handle_plot_display_and_save(save_path, f"📈 훈련 곡선 저장: {save_path}")
+        
+        return save_path
+    
+    def plot_train_validation_separate(self, experiment_results: Dict[str, Any],
+                                     dataset_name: str, save_name: Optional[str] = None) -> Optional[str]:
+        """
+        Train과 Validation을 분리한 시각화 (논문용)
+        
+        Args:
+            experiment_results: 실험 결과 딕셔너리
+            dataset_name: 데이터셋 이름
+            save_name: 저장할 파일명 (없으면 자동 생성)
+        
+        Returns:
+            str: 저장된 파일 경로
+        """
+        # 2x2 레이아웃: Train Loss, Train Acc, Val Loss, Val Acc
+        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+        fig.suptitle(f'{dataset_name} Training vs Validation Performance', 
+                    fontsize=18, fontweight='bold')
+        
+        # 옵티마이저 리스트와 색상 사전 준비
+        opt_names = list(experiment_results.keys())
+        colors_dict = {name: self.get_color(name, i) for i, name in enumerate(opt_names)}
+        
+        # 1. 훈련 손실
+        ax = axes[0, 0]
+        for opt_name, results in experiment_results.items():
+            history = results['training_history']
+            color = colors_dict[opt_name]
+            ax.plot(history['train_loss'], label=opt_name, color=color, linewidth=3, alpha=0.8)
+        
+        ax.set_title('Training Loss', fontsize=16, fontweight='bold')
+        ax.set_xlabel('Epoch', fontsize=12)
+        ax.set_ylabel('Loss', fontsize=12)
+        ax.legend(fontsize=10, loc='upper right')
+        ax.grid(True, alpha=0.3)
+        ax.set_yscale('log')
+        
+        # 2. 훈련 정확도
+        ax = axes[0, 1]
+        for opt_name, results in experiment_results.items():
+            history = results['training_history']
+            color = colors_dict[opt_name]
+            ax.plot(history['train_acc'], label=opt_name, color=color, linewidth=3, alpha=0.8)
+        
+        ax.set_title('Training Accuracy', fontsize=16, fontweight='bold')
+        ax.set_xlabel('Epoch', fontsize=12)
+        ax.set_ylabel('Accuracy (%)', fontsize=12)
+        ax.legend(fontsize=10, loc='lower right')
+        ax.grid(True, alpha=0.3)
+        
+        # 3. 검증 손실
+        ax = axes[1, 0]
+        for opt_name, results in experiment_results.items():
+            history = results['training_history']
+            color = colors_dict[opt_name]
+            ax.plot(history['val_loss'], label=opt_name, color=color, linewidth=3, alpha=0.8)
+        
+        ax.set_title('Validation Loss', fontsize=16, fontweight='bold')
+        ax.set_xlabel('Epoch', fontsize=12)
+        ax.set_ylabel('Loss', fontsize=12)
+        ax.legend(fontsize=10, loc='upper right')
+        ax.grid(True, alpha=0.3)
+        ax.set_yscale('log')
+        
+        # 4. 검증 정확도
+        ax = axes[1, 1]
+        for opt_name, results in experiment_results.items():
+            history = results['training_history']
+            color = colors_dict[opt_name]
+            ax.plot(history['val_acc'], label=opt_name, color=color, linewidth=3, alpha=0.8)
+        
+        ax.set_title('Validation Accuracy', fontsize=16, fontweight='bold')
+        ax.set_xlabel('Epoch', fontsize=12)
+        ax.set_ylabel('Accuracy (%)', fontsize=12)
+        ax.legend(fontsize=10, loc='lower right')
+        ax.grid(True, alpha=0.3)
+        
+        # 레이아웃 조정 (논문 품질)
+        plt.tight_layout(pad=3.0)
+        plt.subplots_adjust(hspace=0.3, wspace=0.3)
+        
+        # 파일 저장
+        if save_name is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_name = f'{dataset_name.lower()}_train_val_separate_{timestamp}.png'
+        
+        save_path = os.path.join(self.results_dir, save_name) if _SAVE_PLOTS else None
+        _handle_plot_display_and_save(save_path, f"📈 Train/Val 분리 시각화 저장: {save_path}")
         
         return save_path
     
@@ -232,7 +349,7 @@ class ExperimentVisualizer:
                     fontsize=16, fontweight='bold')
         
         opt_names = list(experiment_results.keys())
-        colors_list = [self.colors.get(name, 'gray') for name in opt_names]
+        colors_list = [self.get_color(name, i) for i, name in enumerate(opt_names)]
         
         # 1. 최고 검증 정확도
         ax = axes[0, 0]
@@ -701,22 +818,27 @@ class ExperimentVisualizer:
             experiment_results, dataset_name, f"{base_name}_training_curves.png"
         )
         
-        # 2. 성능 비교
+        # 2. Train/Validation 분리 시각화 (논문용)
+        saved_files['train_val_separate'] = self.plot_train_validation_separate(
+            experiment_results, dataset_name, f"{base_name}_train_val_separate.png"
+        )
+        
+        # 3. 성능 비교
         saved_files['performance_comparison'] = self.plot_performance_comparison(
             experiment_results, dataset_name, f"{base_name}_performance.png"
         )
         
-        # 3. 옵티마이저 분석
+        # 4. 옵티마이저 분석
         saved_files['optimizer_analysis'] = self.plot_optimizer_analysis(
             experiment_results, dataset_name, f"{base_name}_analysis.png"
         )
         
-        # 4. 종합 보고서
+        # 5. 종합 보고서
         saved_files['comprehensive_report'] = self.create_summary_report(
             experiment_results, dataset_name, f"{base_name}_report.png"
         )
         
-        # 5. JSON 결과
+        # 6. JSON 결과
         saved_files['json_results'] = self.save_results_json(
             experiment_results, dataset_name, f"{base_name}_results.json"
         )
@@ -1131,14 +1253,17 @@ class AdamABSAnalyzer:
 
 
 class BatchSizeVisualizer:
-    """배치 사이즈 비교 실험 전용 시각화 클래스"""
+    """배치 사이즈 비교 실험 전용 시각화 클래스 (5개 옵티마이저 지원)"""
     
     def __init__(self, results_dir: str = './results'):
         self.results_dir = results_dir
+        # 5개 옵티마이저용 색상 팔레트 (ExperimentVisualizer와 동일)
         self.colors = {
-            'Adam': '#1f77b4',
-            'AdamABS': '#2ca02c',
-            'AdamW': '#ff7f0e'
+            'AdaGrad': '#e41a1c',    # 빨간색
+            'RMSProp': '#377eb8',    # 파란색
+            'Adam': '#4daf4a',       # 초록색  
+            'AdamW': '#984ea3',      # 보라색
+            'AdamABS': '#ff7f00'     # 주황색
         }
         self.batch_colors = {
             64: '#e74c3c',   # 빨간색
@@ -1152,6 +1277,11 @@ class BatchSizeVisualizer:
         
         print(f"📊 BatchSizeVisualizer 초기화")
         print(f"   결과 저장 경로: {os.path.abspath(self.batch_results_dir)}")
+        
+    def get_color(self, optimizer_name: str, fallback_index: int = 0) -> str:
+        """옵티마이저에 맞는 색상 반환"""
+        fallback_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
+        return self.colors.get(optimizer_name, fallback_colors[fallback_index % len(fallback_colors)])
     
     def plot_batch_size_comparison(self, all_results: Dict[str, Any], 
                                  save_name: Optional[str] = None) -> str:
@@ -1167,14 +1297,14 @@ class BatchSizeVisualizer:
         """
         datasets = list(all_results.keys())
         batch_sizes = [64, 128, 256]
-        optimizers = ['Adam', 'AdamABS']
+        optimizers = ['AdaGrad', 'RMSProp', 'Adam', 'AdamW', 'AdamABS']
         
-        fig, axes = plt.subplots(1, len(datasets), figsize=(6*len(datasets), 6))
+        fig, axes = plt.subplots(1, len(datasets), figsize=(8*len(datasets), 8))
         if len(datasets) == 1:
             axes = [axes]
         
-        fig.suptitle('Batch Size Comparison: Adam vs AdamABS', 
-                    fontsize=16, fontweight='bold')
+        fig.suptitle('Batch Size Comparison: 5 Optimizers', 
+                    fontsize=18, fontweight='bold')
         
         for dataset_idx, (dataset_name, dataset_results) in enumerate(all_results.items()):
             ax = axes[dataset_idx]
@@ -1380,17 +1510,15 @@ class BatchSizeVisualizer:
         except Exception as e:
             print(f"❌ 배치 사이즈 비교 그래프 생성 실패: {e}")
         
-        # 2. AdamABS 히트맵
-        try:
-            saved_files['adamabs_heatmap'] = self.plot_batch_size_heatmap(all_results, 'AdamABS')
-        except Exception as e:
-            print(f"❌ AdamABS 히트맵 생성 실패: {e}")
+        # 2-6. 각 옵티마이저별 히트맵 생성
+        optimizers = ['AdaGrad', 'RMSProp', 'Adam', 'AdamW', 'AdamABS']
         
-        # 3. Adam 히트맵
-        try:
-            saved_files['adam_heatmap'] = self.plot_batch_size_heatmap(all_results, 'Adam')
-        except Exception as e:
-            print(f"❌ Adam 히트맵 생성 실패: {e}")
+        for opt_name in optimizers:
+            try:
+                heatmap_key = f'{opt_name.lower()}_heatmap'
+                saved_files[heatmap_key] = self.plot_batch_size_heatmap(all_results, opt_name)
+            except Exception as e:
+                print(f"❌ {opt_name} 히트맵 생성 실패: {e}")
         
         # 4. 각 데이터셋별 수렴 분석
         for dataset_name in all_results.keys():
@@ -1414,7 +1542,7 @@ class BatchSizeVisualizer:
         """종합 분석 리포트 생성"""
         
         fig = plt.figure(figsize=(20, 16))
-        fig.suptitle('Comprehensive Batch Size Analysis Report: Adam vs AdamABS', 
+        fig.suptitle('Comprehensive Batch Size Analysis Report: 5 Optimizers', 
                     fontsize=20, fontweight='bold', y=0.98)
         
         # 그리드 레이아웃 설정 (4x3)

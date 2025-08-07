@@ -41,7 +41,7 @@ import gc
 from typing import Optional
 
 # 우리가 만든 모듈들 import
-from optimizers import create_optimizer, CustomAdam, CustomAdamW, CustomAdamABS
+from optimizers import create_optimizer, CustomAdaGrad, CustomRMSProp, CustomAdam, CustomAdamW, CustomAdamABS
 from data_loaders import get_dataset_loader, print_dataset_info
 from models import create_model, print_model_summary, get_model_info
 from trainer import OptimizerExperiment, create_standard_scheduler
@@ -83,7 +83,7 @@ def setup_experiment_config(dataset_type: int, epochs: int = None, lr: float = N
             'scheduler_type': 'cosine'
         },
         3: {  # Tiny ImageNet - 과적합 방지 강화 설정 (ResNet)
-            'epochs': 50,
+            'epochs': 40,      # 논문용 실험 설정
             'lr': 0.0005,      # 성공했던 커밋의 학습률 복원
             'weight_decay': 5e-4,  # 정규화 강화
             'batch_size': 128,     # 🔧 성공했던 커밋의 배치 크기 복원 (64 → 128)
@@ -105,17 +105,38 @@ def setup_experiment_config(dataset_type: int, epochs: int = None, lr: float = N
 
 def create_optimizers_config(base_lr: float, weight_decay: float, eps: float = 1e-8) -> dict:
     """
-    옵티마이저 설정 생성
+    5개 옵티마이저 설정 생성 (논문 실험용)
     
     Args:
-        base_lr: 기본 학습률
+        base_lr: 기본 학습률 (0.0005 권장)
         weight_decay: 가중치 감소
-        eps: epsilon 값
+        eps: epsilon 값 (1e-8 권장)
     
     Returns:
         dict: 옵티마이저 설정 딕셔너리
     """
     return {
+        'AdaGrad': {
+            'optimizer_class': CustomAdaGrad,
+            'params': {
+                'lr': base_lr,
+                'eps': 1e-10,  # AdaGrad는 더 작은 epsilon 사용
+                'lr_decay': 0,
+                'weight_decay': weight_decay,
+                'initial_accumulator_value': 0
+            }
+        },
+        'RMSProp': {
+            'optimizer_class': CustomRMSProp,
+            'params': {
+                'lr': base_lr,
+                'alpha': 0.99,
+                'eps': eps,
+                'momentum': 0,
+                'centered': False,
+                'weight_decay': weight_decay
+            }
+        },
         'Adam': {
             'optimizer_class': CustomAdam,
             'params': {
@@ -382,6 +403,28 @@ def full_comparison(dataset_type: int = 1):
     return run_experiment(dataset_type=dataset_type)
 
 
+def tiny_imagenet_paper_experiment(batch_size: int = 128, epochs: int = 40):
+    """
+    논문용 Tiny ImageNet 실험 (5개 옵티마이저 비교)
+    
+    Args:
+        batch_size: 배치 크기 (64, 128, 256 중 선택)
+        epochs: 에포크 수 (기본 40)
+    """
+    print(f"📄 논문용 Tiny ImageNet 실험 (배치 사이즈: {batch_size}, 에포크: {epochs})")
+    
+    # 논문 실험용 최적 설정
+    return run_experiment(
+        dataset_type=3,  # Tiny ImageNet
+        epochs=epochs,
+        lr=0.0005,  # 논문에서 확인된 최적 학습률
+        batch_size=batch_size,
+        model_type='default',
+        optimizers_to_test=None,  # 모든 5개 옵티마이저 테스트
+        resume_training=False
+    )
+
+
 def hyperparameter_grid_search_experiment(dataset_type: Optional[int] = None, epochs: Optional[int] = None):
     """
     Learning rate와 epsilon 조합별 Adam vs AdamABS 비교 실험
@@ -615,7 +658,7 @@ def hyperparameter_grid_search_experiment(dataset_type: Optional[int] = None, ep
 
 def batch_size_comparison_experiment(dataset_type: Optional[int] = None, epochs: Optional[int] = None):
     """
-    배치 사이즈별 Adam vs AdamABS 비교 실험
+    배치 사이즈별 5개 옵티마이저 비교 실험
     
     Args:
         dataset_type: 특정 데이터셋만 테스트 (None이면 모든 데이터셋)
@@ -624,7 +667,7 @@ def batch_size_comparison_experiment(dataset_type: Optional[int] = None, epochs:
     Returns:
         dict: 모든 실험 결과
     """
-    print("🚀 배치 사이즈별 Adam vs AdamABS 비교 실험")
+    print("🚀 배치 사이즈별 5개 옵티마이저 비교 실험")
     print("=" * 80)
     
     # 시각화 모드 안내 (실험 시작 시에만)
@@ -634,7 +677,7 @@ def batch_size_comparison_experiment(dataset_type: Optional[int] = None, epochs:
     datasets_to_test = [dataset_type] if dataset_type else [1, 2, 3]
     # 기본 배치 사이즈 (데이터셋별로 동적 조정)
     batch_sizes = [64, 128, 256]
-    optimizers = ['Adam', 'AdamABS']
+    optimizers = ['AdaGrad', 'RMSProp', 'Adam', 'AdamW', 'AdamABS']
     
     dataset_names = {1: "MNIST", 2: "CIFAR-10", 3: "Tiny ImageNet"}
     
@@ -866,18 +909,20 @@ def interactive_mode():
     print("\n실험 모드를 선택하세요:")
     print("1. 빠른 테스트 (3 에포크, Adam vs AdamABS)")
     print("2. Adam vs AdamABS 집중 비교")
-    print("3. 전체 옵티마이저 비교")
-    print("4. 배치 사이즈 비교 실험 (Adam vs AdamABS, 배치 64/128/256)")
-    print("5. Hyperparameter Grid Search (Adam vs AdamABS, LR & Epsilon 조합)")
-    print("6. 사용자 정의 설정")
+    print("3. 전체 옵티마이저 비교 (5개: AdaGrad, RMSProp, Adam, AdamW, AdamABS)")
+    print("4. 논문용 Tiny ImageNet 실험 (5개 옵티마이저, 40 에포크)")
+    print("5. 배치 사이즈별 비교 실험 (5개 옵티마이저, 배치 64/128/256)")
+    print("6. 특정 배치 사이즈 실험 (배치 사이즈 선택)")
+    print("7. Hyperparameter Grid Search (Adam vs AdamABS, LR & Epsilon 조합)")
+    print("8. 사용자 정의 설정")
     
     while True:
         try:
-            mode_choice = int(input("모드를 선택하세요 (1-6): "))
-            if mode_choice in [1, 2, 3, 4, 5, 6]:
+            mode_choice = int(input("모드를 선택하세요 (1-8): "))
+            if mode_choice in [1, 2, 3, 4, 5, 6, 7, 8]:
                 break
             else:
-                print("❌ 1, 2, 3, 4, 5, 6 중에서 선택해주세요.")
+                print("❌ 1~8 중에서 선택해주세요.")
         except ValueError:
             print("❌ 숫자를 입력해주세요.")
     
@@ -893,6 +938,52 @@ def interactive_mode():
     elif mode_choice == 3:
         return run_experiment(dataset_choice, resume_training=resume_training)
     elif mode_choice == 4:
+        # 논문용 Tiny ImageNet 실험
+        print("\n🚀 논문용 Tiny ImageNet 실험 설정:")
+        
+        # 배치 사이즈 선택
+        print("배치 사이즈를 선택하세요:")
+        print("1. 64")
+        print("2. 128 (권장)")
+        print("3. 256")
+        
+        while True:
+            try:
+                batch_choice = int(input("배치 사이즈 선택 (1-3): "))
+                if batch_choice in [1, 2, 3]:
+                    break
+                else:
+                    print("❌ 1, 2, 3 중에서 선택해주세요.")
+            except ValueError:
+                print("❌ 숫자를 입력해주세요.")
+        
+        batch_sizes = {1: 64, 2: 128, 3: 256}
+        selected_batch_size = batch_sizes[batch_choice]
+        
+        # 에포크 수 설정
+        epochs_input = input(f"에포크 수 (기본 40, 엔터로 기본값 사용): ").strip()
+        epochs = 40
+        if epochs_input:
+            try:
+                epochs = int(epochs_input)
+            except ValueError:
+                print("❌ 잘못된 입력. 기본값 40을 사용합니다.")
+        
+        print(f"\n실험 설정:")
+        print(f"   데이터셋: Tiny ImageNet")
+        print(f"   배치 사이즈: {selected_batch_size}")
+        print(f"   에포크: {epochs}")
+        print(f"   학습률: 0.0005 (고정)")
+        print(f"   Epsilon: 1e-8 (고정)")
+        print(f"   옵티마이저: 5개 (AdaGrad, RMSProp, Adam, AdamW, AdamABS)")
+        
+        confirm = input("\n실험을 시작하시겠습니까? (Y/n): ").strip().lower()
+        if confirm in ['', 'y', 'yes', '예']:
+            return tiny_imagenet_paper_experiment(selected_batch_size, epochs)
+        else:
+            print("❌ 실험이 취소되었습니다.")
+            return None
+    elif mode_choice == 5:
         # 배치 사이즈 비교 실험
         print("\n🚀 배치 사이즈 비교 실험 설정:")
         
@@ -916,7 +1007,7 @@ def interactive_mode():
             print("선택된 데이터셋: 모든 데이터셋 (MNIST, CIFAR-10, Tiny ImageNet)")
         
         print("배치 사이즈: 64, 128, 256")
-        print("옵티마이저: Adam, AdamABS")
+        print("옵티마이저: 5개 (AdaGrad, RMSProp, Adam, AdamW, AdamABS)")
         
         confirm = input("\n실험을 시작하시겠습니까? (Y/n): ").strip().lower()
         if confirm in ['', 'y', 'yes', '예']:
@@ -924,7 +1015,50 @@ def interactive_mode():
         else:
             print("❌ 실험이 취소되었습니다.")
             return None
-    elif mode_choice == 5:
+    elif mode_choice == 6:
+        # 특정 배치 사이즈 실험
+        print("\n🚀 특정 배치 사이즈 실험 설정:")
+        
+        # 배치 사이즈 선택
+        print("배치 사이즈를 선택하세요:")
+        print("1. 64")
+        print("2. 128")
+        print("3. 256")
+        
+        while True:
+            try:
+                batch_choice = int(input("배치 사이즈 선택 (1-3): "))
+                if batch_choice in [1, 2, 3]:
+                    break
+                else:
+                    print("❌ 1, 2, 3 중에서 선택해주세요.")
+            except ValueError:
+                print("❌ 숫자를 입력해주세요.")
+        
+        batch_sizes_map = {1: 64, 2: 128, 3: 256}
+        selected_batch = batch_sizes_map[batch_choice]
+        
+        # 에포크 수 설정
+        epochs = None
+        epochs_input = input("에포크 수 (기본값 사용하려면 엔터): ").strip()
+        if epochs_input:
+            try:
+                epochs = int(epochs_input)
+            except ValueError:
+                print("❌ 잘못된 입력. 기본값을 사용합니다.")
+        
+        print(f"\n실험 설정:")
+        print(f"   데이터셋: {['MNIST', 'CIFAR-10', 'Tiny ImageNet'][dataset_choice-1]}")
+        print(f"   배치 사이즈: {selected_batch}")
+        print(f"   옵티마이저: 5개 (AdaGrad, RMSProp, Adam, AdamW, AdamABS)")
+        
+        confirm = input("\n실험을 시작하시겠습니까? (Y/n): ").strip().lower()
+        if confirm in ['', 'y', 'yes', '예']:
+            return run_experiment(dataset_choice, epochs=epochs, batch_size=selected_batch, resume_training=resume_training)
+        else:
+            print("❌ 실험이 취소되었습니다.")
+            return None
+    elif mode_choice == 7:
         # Hyperparameter Grid Search 실험
         print("\n🚀 Hyperparameter Grid Search 실험 설정:")
         
@@ -958,7 +1092,7 @@ def interactive_mode():
         else:
             print("❌ 실험이 취소되었습니다.")
             return None
-    elif mode_choice == 6:
+    elif mode_choice == 8:
         # 사용자 정의 설정
         print("\n사용자 정의 설정:")
         
@@ -1010,14 +1144,16 @@ def main():
     parser.add_argument('--model', type=str, choices=['default', 'simple', 'resnet'],
                        help='모델 타입')
     parser.add_argument('--optimizers', nargs='+', 
-                       choices=['Adam', 'AdamW', 'AdamABS'],
+                       choices=['AdaGrad', 'RMSProp', 'Adam', 'AdamW', 'AdamABS'],
                        help='테스트할 옵티마이저 (기본: 모두)')
     parser.add_argument('--quick', action='store_true',
                        help='빠른 테스트 모드 (3 에포크)')
     parser.add_argument('--adam-vs-adamabs', action='store_true',
                        help='Adam vs AdamABS만 비교')
     parser.add_argument('--batch-size-comparison', action='store_true',
-                       help='배치 사이즈별 Adam vs AdamABS 비교 (64, 128, 256)')
+                       help='배치 사이즈별 5개 옵티마이저 비교 (64, 128, 256)')
+    parser.add_argument('--batch-size-option', type=int, choices=[64, 128, 256],
+                       help='특정 배치 사이즈로만 실험 (64, 128, 256 중 선택)')
     parser.add_argument('--hyperparameter-grid-search', action='store_true',
                        help='Learning rate와 epsilon 조합별 Adam vs AdamABS 비교')
     parser.add_argument('--resume', action='store_true',
@@ -1036,6 +1172,18 @@ def main():
     # 명령행 인자가 없으면 대화형 모드
     if len(sys.argv) == 1:
         return interactive_mode()
+    
+    # 특정 배치 사이즈 옵션
+    if args.batch_size_option:
+        if args.dataset is None:
+            print("❌ --batch-size-option 사용 시 --dataset 옵션이 필요합니다.")
+            return None
+        return run_experiment(
+            dataset_type=args.dataset,
+            epochs=args.epochs,
+            batch_size=args.batch_size_option,
+            resume_training=args.resume
+        )
     
     # 배치 사이즈 비교 실험은 데이터셋 선택이 선택사항
     if args.batch_size_comparison:
