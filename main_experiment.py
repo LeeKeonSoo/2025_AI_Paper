@@ -82,11 +82,11 @@ def setup_experiment_config(dataset_type: int, epochs: int = None, lr: float = N
             'model_type': 'default',
             'scheduler_type': 'cosine'
         },
-        3: {  # Tiny ImageNet - 오버피팅 방지 강화
+        3: {  # Tiny ImageNet - 과적합 방지 강화 설정 (ResNet)
             'epochs': 50,
-            'lr': 0.0005,      # 🔧 학습률 소폭 감소 (0.0003 → 0.0008)
-            'weight_decay': 5e-4,  # 🔧 정규화 강화 (1e-4 → 5e-4)
-            'batch_size': 64,
+            'lr': 0.0005,      # 성공했던 커밋의 학습률 복원
+            'weight_decay': 5e-4,  # 정규화 강화
+            'batch_size': 128,     # 🔧 성공했던 커밋의 배치 크기 복원 (64 → 128)
             'model_type': 'default',
             'scheduler_type': 'cosine'
         }

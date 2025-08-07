@@ -264,23 +264,18 @@ class BasicBlock(nn.Module):
 
 
 class ResNet18(nn.Module):
-    """개선된 ResNet-18 for Tiny ImageNet (오버피팅 방지 강화)"""
+    """Tiny ImageNet용 ResNet-18 (성공했던 커밋의 단순한 구조 복원)"""
     
-    def __init__(self, num_classes: int = 200, dropout_rate: float = 0.4):
+    def __init__(self, num_classes: int = 200, dropout_rate: float = 0.3):
         super(ResNet18, self).__init__()
         self.in_planes = 64
         
-        # 첫 번째 컨볼루션 - Tiny ImageNet에 최적화
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = nn.BatchNorm2d(64, momentum=0.01, eps=1e-5)  # 🔧 더 안정적인 BN
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        # 첫 번째 컨볼루션 - Tiny ImageNet에 최적화 (64x64 입력)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(64)
+        # 64x64는 작으므로 maxpool 제거
         
-        # 🔧 중간 레이어 드롭아웃 추가
-        self.dropout1 = nn.Dropout2d(p=0.1)  # 초기 단계 약한 드롭아웃
-        self.dropout2 = nn.Dropout2d(p=0.2)  # 중간 단계
-        self.dropout3 = nn.Dropout2d(p=0.3)  # 후반 단계
-        
-        # ResNet layers
+        # ResNet-18 구조: [2, 2, 2, 2]
         self.layer1 = self._make_layer(BasicBlock, 64, 2, stride=1)
         self.layer2 = self._make_layer(BasicBlock, 128, 2, stride=2)
         self.layer3 = self._make_layer(BasicBlock, 256, 2, stride=2)
@@ -288,19 +283,11 @@ class ResNet18(nn.Module):
         
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         
-        # 🔧 최종 분류기 정규화 강화
-        self.fc = nn.Sequential(
-            nn.Dropout(dropout_rate),           # 0.4
-            nn.Linear(512 * BasicBlock.expansion, 256),
-            nn.BatchNorm1d(256),               # 배치 정규화 추가
-            nn.ReLU(),
-            nn.Dropout(dropout_rate * 0.6),    # 0.24 (점진적 감소)
-            nn.Linear(256, 128),
-            nn.BatchNorm1d(128),               # 배치 정규화 추가  
-            nn.ReLU(),
-            nn.Dropout(dropout_rate * 0.3),    # 0.12 (더 감소)
-            nn.Linear(128, num_classes)
-        )
+        # 🔧 과적합 방지를 위한 dropout 레이어들 추가 (성공했던 커밋 구조)
+        self.dropout1 = nn.Dropout(dropout_rate * 0.5)  # 중간 층에 약한 dropout
+        self.dropout2 = nn.Dropout(dropout_rate)         # 최종 층에 강한 dropout
+        
+        self.fc = nn.Linear(512, num_classes)
         
         self._initialize_weights()
     
@@ -326,27 +313,20 @@ class ResNet18(nn.Module):
                     nn.init.constant_(m.bias, 0)
     
     def forward(self, x):
-        # 🔧 중간 레이어에서 드롭아웃 적용
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = self.maxpool(out)
-        out = self.dropout1(out)  # 첫 번째 드롭아웃
+        x = F.relu(self.bn1(self.conv1(x)))
+        # 64x64 입력에서는 maxpool 제거
         
-        out = self.layer1(out)
-        out = self.dropout2(out)  # 두 번째 드롭아웃
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.dropout1(x)  # 중간에 약한 dropout
+        x = self.layer3(x)
+        x = self.layer4(x)
         
-        out = self.layer2(out)
-        out = self.dropout2(out)  # 세 번째 드롭아웃
-        
-        out = self.layer3(out)
-        out = self.dropout3(out)  # 네 번째 드롭아웃
-        
-        out = self.layer4(out)
-        out = self.dropout3(out)  # 다섯 번째 드롭아웃
-        
-        out = self.avgpool(out)
-        out = torch.flatten(out, 1)
-        out = self.fc(out)
-        return out
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        x = self.dropout2(x)  # 최종 분류 전에 강한 dropout
+        x = self.fc(x)
+        return x
 
 
 class SimpleTinyImageNetNet(nn.Module):
