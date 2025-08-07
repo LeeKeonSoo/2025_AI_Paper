@@ -21,13 +21,15 @@ class Trainer:
     
     def __init__(self, model: nn.Module, device: str = 'auto', 
                  print_every_n_batches: int = 100, 
-                 weight_manager: Optional[WeightManager] = None):
+                 weight_manager: Optional[WeightManager] = None,
+                 use_mixed_precision: bool = True):
         """
         Args:
             model: 훈련할 모델
             device: 사용할 디바이스 ('auto', 'cuda', 'cpu')
             print_every_n_batches: 배치마다 출력할 간격
             weight_manager: WeightManager 인스턴스 (최고 성능시 자동 저장)
+            use_mixed_precision: Mixed Precision Training 사용 여부
         """
         self.model = model
         self.print_every_n_batches = print_every_n_batches
@@ -40,6 +42,22 @@ class Trainer:
             self.device = torch.device(device)
         
         self.model.to(self.device)
+        
+        # CUDA 최적화 설정
+        if torch.cuda.is_available():
+            # cuDNN 벤치마킹 활성화 (일관된 입력 크기에서 성능 향상)
+            torch.backends.cudnn.benchmark = True
+            # cuDNN deterministic 설정 (재현성 vs 성능 트레이드오프)
+            torch.backends.cudnn.deterministic = False
+            # CUDA 캐시 할당자 최적화
+            torch.cuda.set_per_process_memory_fraction(0.95)  # GPU 메모리 95% 사용
+        
+        # Mixed Precision Training 설정
+        self.use_mixed_precision = use_mixed_precision and torch.cuda.is_available()
+        if self.use_mixed_precision:
+            self.scaler = torch.cuda.amp.GradScaler()
+        else:
+            self.scaler = None
         
         # 훈련 상태 변수
         self.current_epoch = 0
@@ -62,6 +80,10 @@ class Trainer:
         print(f"   디바이스: {self.device}")
         print(f"   모델: {self.model.__class__.__name__}")
         print(f"   파라미터 수: {self._count_parameters():,}")
+        print(f"   Mixed Precision: {'활성화' if self.use_mixed_precision else '비활성화'}")
+        if torch.cuda.is_available():
+            print(f"   cuDNN Benchmark: {'활성화' if torch.backends.cudnn.benchmark else '비활성화'}")
+            print(f"   GPU 메모리 한도: {torch.cuda.get_per_process_memory_fraction()*100:.0f}%")
         if self.weight_manager:
             print(f"   체크포인트: 최고 성능 달성시 자동 저장")
     
@@ -103,14 +125,23 @@ class Trainer:
             data = data.to(self.device, non_blocking=True)
             target = target.to(self.device, non_blocking=True)
             
-            # Forward pass
+            # Forward pass with Mixed Precision
             optimizer.zero_grad()
-            output = self.model(data)
-            loss = criterion(output, target)
             
-            # Backward pass
-            loss.backward()
-            optimizer.step()
+            if self.use_mixed_precision:
+                with torch.cuda.amp.autocast():
+                    output = self.model(data)
+                    loss = criterion(output, target)
+                
+                # Backward pass with scaling
+                self.scaler.scale(loss).backward()
+                self.scaler.step(optimizer)
+                self.scaler.update()
+            else:
+                output = self.model(data)
+                loss = criterion(output, target)
+                loss.backward()
+                optimizer.step()
             
             # 통계 업데이트
             batch_time = time.time() - batch_start_time
@@ -183,8 +214,13 @@ class Trainer:
                 data = data.to(self.device, non_blocking=True)
                 target = target.to(self.device, non_blocking=True)
                 
-                output = self.model(data)
-                loss = criterion(output, target)
+                if self.use_mixed_precision:
+                    with torch.cuda.amp.autocast():
+                        output = self.model(data)
+                        loss = criterion(output, target)
+                else:
+                    output = self.model(data)
+                    loss = criterion(output, target)
                 
                 running_loss += loss.item()
                 _, predicted = torch.max(output.data, 1)
@@ -419,8 +455,8 @@ class OptimizerExperiment:
         print(f"🔬 {optimizer_name.upper()} 실험 시작")
         print("="*100)
         
-        # Trainer 생성
-        trainer = Trainer(model, device='auto', weight_manager=self.weight_manager)
+        # Trainer 생성 (Mixed Precision 활성화)
+        trainer = Trainer(model, device='auto', weight_manager=self.weight_manager, use_mixed_precision=True)
         
         # 메타데이터 설정
         trainer.set_metadata(
@@ -541,10 +577,8 @@ class OptimizerExperiment:
                     print(f"   최종 테스트 정확도: {results['test_results']['accuracy']:.2f}%")
                 print(f"   훈련 시간: {results['total_training_time']:.1f}초")
                 
-                # GPU 메모리 정리
+                # 모델과 옵티마이저 정리 (GPU 메모리 자동 관리)
                 del model, optimizer
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
                 
             except Exception as e:
                 print(f"❌ {opt_name} 실험 실패: {e}")

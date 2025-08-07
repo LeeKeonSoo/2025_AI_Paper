@@ -230,7 +230,7 @@ class DatasetLoader:
             return self._create_tiny_imagenet_loaders(train_transform, test_transform)
     
     def _create_mnist_loaders(self, train_transform, test_transform) -> Tuple[DataLoader, DataLoader, DataLoader]:
-        """MNIST 데이터 로더 생성"""
+        """MNIST 데이터 로더 생성 - GPU 최적화"""
         # 전체 훈련 데이터셋 로드
         full_train_dataset = torchvision.datasets.MNIST(
             root=self.data_dir, train=True, download=True, transform=train_transform
@@ -249,27 +249,32 @@ class DatasetLoader:
             generator=torch.Generator().manual_seed(42)
         )
         
-        # 데이터 로더 생성
-        # 안정성을 위해 pin_memory 비활성화 및 persistent_workers=False
+        # GPU 최적화된 데이터 로더 생성
+        optimal_workers = min(os.cpu_count() or 4, 8)
+        use_pin_memory = torch.cuda.is_available()
+        
         train_loader = DataLoader(
             train_dataset, batch_size=self.batch_size, shuffle=True,
-            num_workers=self.num_workers, pin_memory=False, persistent_workers=False
+            num_workers=optimal_workers, pin_memory=use_pin_memory,
+            persistent_workers=True, prefetch_factor=2
         )
         
         val_loader = DataLoader(
             val_dataset, batch_size=self.batch_size, shuffle=False,
-            num_workers=self.num_workers, pin_memory=False, persistent_workers=False
+            num_workers=optimal_workers, pin_memory=use_pin_memory,
+            persistent_workers=True, prefetch_factor=2
         )
         
         test_loader = DataLoader(
             test_dataset, batch_size=self.batch_size, shuffle=False,
-            num_workers=self.num_workers, pin_memory=False, persistent_workers=False
+            num_workers=optimal_workers, pin_memory=use_pin_memory,
+            persistent_workers=True, prefetch_factor=2
         )
         
         return train_loader, val_loader, test_loader
     
     def _create_cifar10_loaders(self, train_transform, test_transform) -> Tuple[DataLoader, DataLoader, DataLoader]:
-        """CIFAR-10 데이터 로더 생성"""
+        """CIFAR-10 데이터 로더 생성 - GPU 최적화"""
         # 전체 훈련 데이터셋 로드
         full_train_dataset = torchvision.datasets.CIFAR10(
             root=self.data_dir, train=True, download=True, transform=train_transform
@@ -288,21 +293,26 @@ class DatasetLoader:
             generator=torch.Generator().manual_seed(42)
         )
         
-        # 데이터 로더 생성
-        # 안정성을 위해 pin_memory 비활성화 및 persistent_workers=False
+        # GPU 최적화된 데이터 로더 생성
+        optimal_workers = min(os.cpu_count() or 4, 8)
+        use_pin_memory = torch.cuda.is_available()
+        
         train_loader = DataLoader(
             train_dataset, batch_size=self.batch_size, shuffle=True,
-            num_workers=self.num_workers, pin_memory=False, persistent_workers=False
+            num_workers=optimal_workers, pin_memory=use_pin_memory,
+            persistent_workers=True, prefetch_factor=2
         )
         
         val_loader = DataLoader(
             val_dataset, batch_size=self.batch_size, shuffle=False,
-            num_workers=self.num_workers, pin_memory=False, persistent_workers=False
+            num_workers=optimal_workers, pin_memory=use_pin_memory,
+            persistent_workers=True, prefetch_factor=2
         )
         
         test_loader = DataLoader(
             test_dataset, batch_size=self.batch_size, shuffle=False,
-            num_workers=self.num_workers, pin_memory=False, persistent_workers=False
+            num_workers=optimal_workers, pin_memory=use_pin_memory,
+            persistent_workers=True, prefetch_factor=2
         )
         
         return train_loader, val_loader, test_loader
@@ -322,20 +332,27 @@ class DatasetLoader:
         val_dataset = TinyImageNetDataset(tiny_imagenet_dir, 'val', test_transform)
         test_dataset = TinyImageNetDataset(tiny_imagenet_dir, 'val', test_transform)  # val을 test로 사용
         
-        # 데이터 로더 생성 (단순한 설정)
+        # GPU 최적화된 데이터 로더 생성
+        # CPU 코어 수에 따른 워커 수 자동 조정
+        optimal_workers = min(os.cpu_count() or 4, 8)  # 최대 8개 워커
+        use_pin_memory = torch.cuda.is_available()  # GPU 있을 때만 pin_memory 사용
+        
         train_loader = DataLoader(
             train_dataset, batch_size=self.batch_size, shuffle=True,
-            num_workers=self.num_workers, pin_memory=False
+            num_workers=optimal_workers, pin_memory=use_pin_memory,
+            persistent_workers=True, prefetch_factor=2
         )
         
         val_loader = DataLoader(
             val_dataset, batch_size=self.batch_size, shuffle=False,
-            num_workers=self.num_workers, pin_memory=False
+            num_workers=optimal_workers, pin_memory=use_pin_memory,
+            persistent_workers=True, prefetch_factor=2
         )
         
         test_loader = DataLoader(
             test_dataset, batch_size=self.batch_size, shuffle=False,
-            num_workers=self.num_workers, pin_memory=False
+            num_workers=optimal_workers, pin_memory=use_pin_memory,
+            persistent_workers=True, prefetch_factor=2
         )
         
         return train_loader, val_loader, test_loader
