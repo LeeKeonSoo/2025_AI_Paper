@@ -667,7 +667,7 @@ def batch_size_comparison_experiment(dataset_type: Optional[int] = None, epochs:
         
         # Tiny ImageNet의 경우 배치 사이즈 조정 (메모리 절약)
         if ds_type == 3:  # Tiny ImageNet
-            current_batch_sizes = [32, 64, 128]  # 더 작은 배치 사이즈 사용
+            current_batch_sizes = [64, 128, 256]  # 더 작은 배치 사이즈 사용
             print(f"   Tiny ImageNet: 메모리 절약을 위해 배치 사이즈 조정 {current_batch_sizes}")
         else:
             current_batch_sizes = batch_sizes  # [64, 128, 256]
