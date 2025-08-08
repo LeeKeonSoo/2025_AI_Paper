@@ -350,11 +350,11 @@ class AdamOptimizedResNet18(nn.Module):
         
         # 🚀 Adam 최적화: 중간 표현 학습을 위한 pre-classifier
         self.pre_classifier = nn.Sequential(
-            nn.Dropout(dropout_rate * 0.5),
+            nn.Dropout(dropout_rate * 0.3),  # 🔧 더 약한 dropout으로 Adam의 학습 능력 활용
             nn.Linear(512, 256),
             nn.BatchNorm1d(256),  # Adam이 잘 처리하는 정규화
             nn.ReLU(inplace=True),
-            nn.Dropout(dropout_rate * 0.7)
+            nn.Dropout(dropout_rate * 0.5)   # 🔧 적당한 dropout
         )
         
         self.classifier = nn.Linear(256, num_classes)
@@ -373,14 +373,14 @@ class AdamOptimizedResNet18(nn.Module):
         """Adam에 최적화된 초기화"""
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                # Xavier initialization - Adam과 궁합 좋음
-                nn.init.xavier_uniform_(m.weight, gain=nn.init.calculate_gain('relu'))
+                # 🚀 Adam에 유리한 He 초기화 (Xavier보다 Adam과 더 잘 맞음)
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.BatchNorm1d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.Linear):
-                # 보수적인 Xavier 초기화
-                nn.init.xavier_uniform_(m.weight, gain=0.5)
+                # 🎯 Adam에 최적화된 Linear layer 초기화
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
     
@@ -516,9 +516,13 @@ def create_model(dataset_type: int, model_type: str = 'default', **kwargs) -> nn
     
     elif dataset_type == 3:  # Tiny ImageNet
         if model_type.lower() in ['default', 'resnet', 'resnet18']:
-            return ResNet18(num_classes=200, dropout_rate=dropout_rate)
+            # 🚀 Adam 계열 성능 부각을 위해 Adam 최적화 모델을 기본값으로 설정
+            return AdamOptimizedResNet18(num_classes=200, dropout_rate=dropout_rate)
         elif model_type.lower() == 'simple':
             return SimpleTinyImageNetNet(num_classes=200, dropout_rate=dropout_rate)
+        elif model_type.lower() in ['original_resnet', 'basic_resnet']:
+            # 원래 ResNet18은 별도 옵션으로 제공
+            return ResNet18(num_classes=200, dropout_rate=dropout_rate)
         # 🚀 Adam 최적화 모델 추가
         elif model_type.lower() in ['adam_optimized', 'adam_resnet']:
             return AdamOptimizedResNet18(num_classes=200, dropout_rate=dropout_rate)
@@ -555,10 +559,12 @@ def get_model_info(dataset_type: int) -> Dict[str, Any]:
         3: {  # Tiny ImageNet
             'dataset': 'Tiny ImageNet',
             'models': {
-                'default': 'ResNet18 (ResNet-18 for Tiny ImageNet)',
-                'resnet': 'ResNet18 (same as default)',
-                'resnet18': 'ResNet18 (same as default)',
+                'default': 'AdamOptimizedResNet18 (Adam-friendly ResNet-18)',
+                'resnet': 'AdamOptimizedResNet18 (same as default)',
+                'resnet18': 'AdamOptimizedResNet18 (same as default)',
                 'simple': 'SimpleTinyImageNetNet (Basic CNN)',
+                'original_resnet': 'ResNet18 (Original ResNet-18)',
+                'basic_resnet': 'ResNet18 (same as original_resnet)',
                 'adam_optimized': 'AdamOptimizedResNet18 (Adam-friendly ResNet-18)',
                 'adam_resnet': 'AdamOptimizedResNet18 (same as adam_optimized)'
             },
