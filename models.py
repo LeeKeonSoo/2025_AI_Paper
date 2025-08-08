@@ -329,6 +329,79 @@ class ResNet18(nn.Module):
         return x
 
 
+class AdamOptimizedResNet18(nn.Module):
+    """Adam 계열 최적화를 위한 ResNet-18 (과적합 방지)"""
+    
+    def __init__(self, num_classes: int = 200, dropout_rate: float = 0.2):
+        super(AdamOptimizedResNet18, self).__init__()
+        self.in_planes = 64
+        
+        # 첫 번째 컨볼루션 - Tiny ImageNet에 최적화
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(64)
+        
+        # ResNet-18 구조: [2, 2, 2, 2] - 기본 구조 유지
+        self.layer1 = self._make_layer(BasicBlock, 64, 2, stride=1)
+        self.layer2 = self._make_layer(BasicBlock, 128, 2, stride=2)
+        self.layer3 = self._make_layer(BasicBlock, 256, 2, stride=2)
+        self.layer4 = self._make_layer(BasicBlock, 512, 2, stride=2)
+        
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        
+        # 🚀 Adam 최적화: 중간 표현 학습을 위한 pre-classifier
+        self.pre_classifier = nn.Sequential(
+            nn.Dropout(dropout_rate * 0.5),
+            nn.Linear(512, 256),
+            nn.BatchNorm1d(256),  # Adam이 잘 처리하는 정규화
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout_rate * 0.7)
+        )
+        
+        self.classifier = nn.Linear(256, num_classes)
+        
+        self._initialize_weights()
+    
+    def _make_layer(self, block, planes: int, num_blocks: int, stride: int):
+        strides = [stride] + [1] * (num_blocks - 1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride))
+            self.in_planes = planes * block.expansion
+        return nn.Sequential(*layers)
+    
+    def _initialize_weights(self):
+        """Adam에 최적화된 초기화"""
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                # Xavier initialization - Adam과 궁합 좋음
+                nn.init.xavier_uniform_(m.weight, gain=nn.init.calculate_gain('relu'))
+            elif isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.BatchNorm1d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                # 보수적인 Xavier 초기화
+                nn.init.xavier_uniform_(m.weight, gain=0.5)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+    
+    def forward(self, x):
+        x = F.relu(self.bn1(self.conv1(x)))
+        
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        
+        # 🎯 Adam이 잘 최적화하는 중간 표현 학습
+        x = self.pre_classifier(x)
+        x = self.classifier(x)
+        
+        return x
+
+
 class SimpleTinyImageNetNet(nn.Module):
     """간단한 Tiny ImageNet CNN 모델"""
     
@@ -446,6 +519,9 @@ def create_model(dataset_type: int, model_type: str = 'default', **kwargs) -> nn
             return ResNet18(num_classes=200, dropout_rate=dropout_rate)
         elif model_type.lower() == 'simple':
             return SimpleTinyImageNetNet(num_classes=200, dropout_rate=dropout_rate)
+        # 🚀 Adam 최적화 모델 추가
+        elif model_type.lower() in ['adam_optimized', 'adam_resnet']:
+            return AdamOptimizedResNet18(num_classes=200, dropout_rate=dropout_rate)
         else:
             raise ValueError(f"Tiny ImageNet에서 지원하지 않는 모델 타입: {model_type}")
     
@@ -482,7 +558,9 @@ def get_model_info(dataset_type: int) -> Dict[str, Any]:
                 'default': 'ResNet18 (ResNet-18 for Tiny ImageNet)',
                 'resnet': 'ResNet18 (same as default)',
                 'resnet18': 'ResNet18 (same as default)',
-                'simple': 'SimpleTinyImageNetNet (Basic CNN)'
+                'simple': 'SimpleTinyImageNetNet (Basic CNN)',
+                'adam_optimized': 'AdamOptimizedResNet18 (Adam-friendly ResNet-18)',
+                'adam_resnet': 'AdamOptimizedResNet18 (same as adam_optimized)'
             },
             'num_classes': 200,
             'input_size': (3, 64, 64)
@@ -548,6 +626,7 @@ def print_all_models_info():
     print("   model = create_model(dataset_type=1, model_type='default')")
     print("   model = create_model(dataset_type=2, model_type='simple')")
     print("   model = create_model(dataset_type=3, model_type='resnet')  # Tiny ImageNet")
+    print("   model = create_model(dataset_type=3, model_type='adam_optimized')  # 🚀 Adam 최적화")
     print("=" * 80)
 
 
@@ -566,6 +645,7 @@ if __name__ == "__main__":
         (2, 'simple'),   # CIFAR-10 Simple
         (3, 'default'),  # Tiny ImageNet ResNet-18
         (3, 'simple'),   # Tiny ImageNet Simple
+        (3, 'adam_optimized'),  # 🚀 Adam 최적화 모델 테스트 추가
     ]
     
     for dataset_type, model_type in test_cases:
