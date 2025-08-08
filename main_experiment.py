@@ -41,7 +41,7 @@ import gc
 from typing import Optional
 
 # 우리가 만든 모듈들 import
-from optimizers import create_optimizer, CustomAdaGrad, CustomRMSProp, CustomAdam, CustomAdamW, CustomAdamABS
+from optimizers import create_optimizer, CustomAdaGrad, CustomRMSProp, CustomRMSPropABS, CustomAdam, CustomAdamW, CustomAdamABS
 from data_loaders import get_dataset_loader, print_dataset_info
 from models import create_model, print_model_summary, get_model_info
 from trainer import OptimizerExperiment, create_standard_scheduler
@@ -116,18 +116,19 @@ def create_optimizers_config(base_lr: float, weight_decay: float, eps: float = 1
         dict: 옵티마이저 설정 딕셔너리
     """
     return {
-        'AdaGrad': {
-            'optimizer_class': CustomAdaGrad,
-            'params': {
-                'lr': base_lr,
-                'eps': 1e-10,  # AdaGrad는 더 작은 epsilon 사용
-                'lr_decay': 0,
-                'weight_decay': weight_decay,
-                'initial_accumulator_value': 0
-            }
-        },
         'RMSProp': {
             'optimizer_class': CustomRMSProp,
+            'params': {
+                'lr': base_lr,
+                'alpha': 0.99,
+                'eps': eps,
+                'momentum': 0,
+                'centered': False,
+                'weight_decay': weight_decay
+            }
+        },
+        'RMSPropABS': {
+            'optimizer_class': CustomRMSPropABS,
             'params': {
                 'lr': base_lr,
                 'alpha': 0.99,
@@ -677,7 +678,7 @@ def batch_size_comparison_experiment(dataset_type: Optional[int] = None, epochs:
     datasets_to_test = [dataset_type] if dataset_type else [1, 2, 3]
     # 기본 배치 사이즈 (데이터셋별로 동적 조정)
     batch_sizes = [64, 128, 256]
-    optimizers = ['AdaGrad', 'RMSProp', 'Adam', 'AdamW', 'AdamABS']
+    optimizers = ['RMSProp', 'RMSPropABS', 'Adam', 'AdamW', 'AdamABS']
     
     dataset_names = {1: "MNIST", 2: "CIFAR-10", 3: "Tiny ImageNet"}
     
@@ -909,7 +910,7 @@ def interactive_mode():
     print("\n실험 모드를 선택하세요:")
     print("1. 빠른 테스트 (3 에포크, Adam vs AdamABS)")
     print("2. Adam vs AdamABS 집중 비교")
-    print("3. 전체 옵티마이저 비교 (5개: AdaGrad, RMSProp, Adam, AdamW, AdamABS)")
+    print("3. 전체 옵티마이저 비교 (5개: RMSProp, RMSPropABS, Adam, AdamW, AdamABS)")
     print("4. 논문용 Tiny ImageNet 실험 (5개 옵티마이저, 40 에포크)")
     print("5. 배치 사이즈별 비교 실험 (5개 옵티마이저, 배치 64/128/256)")
     print("6. 특정 배치 사이즈 실험 (배치 사이즈 선택)")
@@ -975,7 +976,7 @@ def interactive_mode():
         print(f"   에포크: {epochs}")
         print(f"   학습률: 0.0005 (고정)")
         print(f"   Epsilon: 1e-8 (고정)")
-        print(f"   옵티마이저: 5개 (AdaGrad, RMSProp, Adam, AdamW, AdamABS)")
+        print(f"   옵티마이저: 5개 (RMSProp, RMSPropABS, Adam, AdamW, AdamABS)")
         
         confirm = input("\n실험을 시작하시겠습니까? (Y/n): ").strip().lower()
         if confirm in ['', 'y', 'yes', '예']:
@@ -1007,7 +1008,7 @@ def interactive_mode():
             print("선택된 데이터셋: 모든 데이터셋 (MNIST, CIFAR-10, Tiny ImageNet)")
         
         print("배치 사이즈: 64, 128, 256")
-        print("옵티마이저: 5개 (AdaGrad, RMSProp, Adam, AdamW, AdamABS)")
+        print("옵티마이저: 5개 (RMSProp, RMSPropABS, Adam, AdamW, AdamABS)")
         
         confirm = input("\n실험을 시작하시겠습니까? (Y/n): ").strip().lower()
         if confirm in ['', 'y', 'yes', '예']:
@@ -1050,7 +1051,7 @@ def interactive_mode():
         print(f"\n실험 설정:")
         print(f"   데이터셋: {['MNIST', 'CIFAR-10', 'Tiny ImageNet'][dataset_choice-1]}")
         print(f"   배치 사이즈: {selected_batch}")
-        print(f"   옵티마이저: 5개 (AdaGrad, RMSProp, Adam, AdamW, AdamABS)")
+        print(f"   옵티마이저: 5개 (RMSProp, RMSPropABS, Adam, AdamW, AdamABS)")
         
         confirm = input("\n실험을 시작하시겠습니까? (Y/n): ").strip().lower()
         if confirm in ['', 'y', 'yes', '예']:
@@ -1144,7 +1145,7 @@ def main():
     parser.add_argument('--model', type=str, choices=['default', 'simple', 'resnet'],
                        help='모델 타입')
     parser.add_argument('--optimizers', nargs='+', 
-                       choices=['AdaGrad', 'RMSProp', 'Adam', 'AdamW', 'AdamABS'],
+                       choices=['RMSProp', 'RMSPropABS', 'Adam', 'AdamW', 'AdamABS'],
                        help='테스트할 옵티마이저 (기본: 모두)')
     parser.add_argument('--quick', action='store_true',
                        help='빠른 테스트 모드 (3 에포크)')

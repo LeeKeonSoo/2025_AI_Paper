@@ -406,27 +406,101 @@ class CustomAdamABS(torch.optim.Optimizer):
                 bias_corrected_exp_avg = exp_avg / bias_correction1
                 bias_corrected_exp_avg_sq = exp_avg_sq / bias_correction2
                 
-                # 🚀 AdamABS 핵심: 제곱근 연산 제거로 계산 효율성 확보
+                # 🚀 AdamABS 핵심: 제곱근 연산 완전 제거로 계산 효율성 확보
                 # 절댓값 기반 2차 모멘텀을 직접 사용 (sqrt 없음)
                 denominator = bias_corrected_exp_avg_sq.add_(group['eps'])
                 
-                # 🎯 적응적 스케일링 완전 제거: 성능 저하의 주요 원인
-                # Adam과 동일한 학습률 유지로 공정한 비교
-                step_size = group['lr']
-                
-                # 🔧 수치 안정성을 위한 스케일 정규화
-                # 절댓값 사용으로 인한 스케일 차이를 보정
-                avg_denominator = denominator.mean()
-                if avg_denominator > group['eps']:
-                    # Adam과 유사한 스케일 유지를 위한 정규화
-                    scale_factor = avg_denominator.sqrt()
-                    normalized_denominator = denominator / scale_factor
-                else:
-                    normalized_denominator = denominator
-                
                 # 파라미터 업데이트: θ_t = θ_{t-1} - α * m̂_t / (v̂_t + ε)
-                # 제곱근 없는 AdamABS의 핵심 특징 유지
-                p.data.add_(bias_corrected_exp_avg / normalized_denominator, alpha=-step_size)
+                # 제곱근과 복잡한 정규화 완전 제거 - 순수한 ABS 방식
+                p.data.add_(bias_corrected_exp_avg / denominator, alpha=-group['lr'])
+        
+        return loss
+
+
+class CustomRMSPropABS(torch.optim.Optimizer):
+    """
+    RMSPropABS 최적화 알고리즘 직접 구현 (RMSProp + ABS 방식)
+    
+    수식:
+    v_t = α * v_{t-1} + (1 - α) * |g_t|    ← 절댓값 사용
+    θ_t = θ_{t-1} - (lr / (v_t + ε)) * g_t  ← 제곱근 제거
+    """
+    
+    def __init__(self, params, lr=1e-2, alpha=0.99, eps=1e-8, weight_decay=0, momentum=0, centered=False):
+        if not 0.0 <= lr:
+            raise ValueError(f"Invalid learning rate: {lr}")
+        if not 0.0 <= eps:
+            raise ValueError(f"Invalid epsilon value: {eps}")
+        if not 0.0 <= momentum:
+            raise ValueError(f"Invalid momentum value: {momentum}")
+        if not 0.0 <= weight_decay:
+            raise ValueError(f"Invalid weight_decay value: {weight_decay}")
+        if not 0.0 <= alpha:
+            raise ValueError(f"Invalid alpha value: {alpha}")
+            
+        defaults = dict(lr=lr, momentum=momentum, alpha=alpha, eps=eps, centered=centered, weight_decay=weight_decay)
+        super(CustomRMSPropABS, self).__init__(params, defaults)
+    
+    def step(self, closure=None):
+        """RMSPropABS 최적화 스텝 수행"""
+        loss = None
+        if closure is not None:
+            loss = closure()
+        
+        for group in self.param_groups:
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                
+                grad = p.grad.data
+                if grad.dtype in {torch.float16, torch.bfloat16}:
+                    grad = grad.float()
+                
+                # Weight decay 적용
+                if group['weight_decay'] != 0:
+                    grad = grad.add(p.data, alpha=group['weight_decay'])
+                
+                state = self.state[p]
+                
+                # State 초기화
+                if len(state) == 0:
+                    state['step'] = 0
+                    # 절댓값 기반 지수이동평균
+                    state['square_avg'] = torch.zeros_like(p.data).float()
+                    if group['momentum'] > 0:
+                        state['momentum_buffer'] = torch.zeros_like(p.data).float()
+                    if group['centered']:
+                        # Centered 버전을 위한 gradient 평균
+                        state['grad_avg'] = torch.zeros_like(p.data).float()
+                
+                square_avg = state['square_avg']
+                alpha = group['alpha']
+                
+                state['step'] += 1
+                
+                # 🚀 RMSPropABS 핵심: 절댓값 기반 지수이동평균
+                # v_t = α * v_{t-1} + (1 - α) * |g_t| (기존 g_t² 대신 |g_t|)
+                square_avg.mul_(alpha).add_(grad.abs(), alpha=1 - alpha)
+                
+                if group['centered']:
+                    # Centered RMSPropABS
+                    grad_avg = state['grad_avg']
+                    grad_avg.mul_(alpha).add_(grad, alpha=1 - alpha)
+                    # 제곱근 제거: avg = square_avg - grad_avg² + ε (sqrt 없음)
+                    avg = square_avg.sub(grad_avg.pow(2)).add_(group['eps'])
+                else:
+                    # 🎯 RMSPropABS 핵심: 제곱근 완전 제거
+                    # avg = v_t + ε (sqrt 없음)
+                    avg = square_avg.add_(group['eps'])
+                
+                if group['momentum'] > 0:
+                    buf = state['momentum_buffer']
+                    buf.mul_(group['momentum']).add_(grad / avg)
+                    p.data.add_(buf, alpha=-group['lr'])
+                else:
+                    # 파라미터 업데이트: θ_t = θ_{t-1} - (lr / (v_t + ε)) * g_t
+                    # 제곱근 없는 RMSPropABS의 핵심 특징
+                    p.data.add_(grad / avg, alpha=-group['lr'])
         
         return loss
 
@@ -437,7 +511,7 @@ def create_optimizer(optimizer_name: str, params, lr: float = 1e-3,
     최적화 알고리즘 팩토리 함수
     
     Args:
-        optimizer_name: 최적화 알고리즘 이름 ('adagrad', 'rmsprop', 'adam', 'adamw', 'adamabs')
+        optimizer_name: 최적화 알고리즘 이름 ('adagrad', 'rmsprop', 'rmspropabs', 'adam', 'adamw', 'adamabs')
         params: 모델 파라미터
         lr: 학습률
         weight_decay: 가중치 감소
@@ -465,6 +539,13 @@ def create_optimizer(optimizer_name: str, params, lr: float = 1e-3,
         centered = kwargs.get('centered', False)
         return CustomRMSProp(params, lr=lr, alpha=alpha, eps=eps, weight_decay=weight_decay,
                            momentum=momentum, centered=centered)
+    
+    elif optimizer_name == 'rmspropabs':
+        alpha = kwargs.get('alpha', 0.99)
+        momentum = kwargs.get('momentum', 0)
+        centered = kwargs.get('centered', False)
+        return CustomRMSPropABS(params, lr=lr, alpha=alpha, eps=eps, weight_decay=weight_decay,
+                               momentum=momentum, centered=centered)
     
     elif optimizer_name == 'adam':
         betas = kwargs.get('betas', (0.9, 0.999))
@@ -500,6 +581,12 @@ def get_optimizer_info():
             'description': 'RMSProp (Root Mean Square Propagation) 최적화 알고리즘',
             'features': ['지수이동평균', '적응적 학습률', '모멘텀 옵션', 'Centered 옵션'],
             'formula': 'θ_t = θ_{t-1} - (lr / (√v_t + ε)) * g_t, v_t = α * v_{t-1} + (1-α) * g_t²'
+        },
+        'rmspropabs': {
+            'name': 'Custom RMSPropABS',
+            'description': 'RMSPropABS (RMSProp + ABS 방식) - 절댓값 기반 효율적 알고리즘',
+            'features': ['절댓값 기반 지수이동평균', '제곱근 연산 제거', '모멘텀 옵션', 'Centered 옵션'],
+            'formula': 'θ_t = θ_{t-1} - (lr / (v_t + ε)) * g_t, v_t = α * v_{t-1} + (1-α) * |g_t| (no sqrt!)'
         },
         'adam': {
             'name': 'Custom Adam',
