@@ -330,9 +330,9 @@ class ResNet18(nn.Module):
 
 
 class AdamOptimizedResNet18(nn.Module):
-    """Adam 계열 최적화를 위한 ResNet-18 (과적합 방지)"""
+    """과적합 방지를 위한 균형 잡힌 ResNet-18"""
     
-    def __init__(self, num_classes: int = 200, dropout_rate: float = 0.2):
+    def __init__(self, num_classes: int = 200, dropout_rate: float = 0.4):
         super(AdamOptimizedResNet18, self).__init__()
         self.in_planes = 64
         
@@ -348,16 +348,11 @@ class AdamOptimizedResNet18(nn.Module):
         
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         
-        # 🚀 Adam 최적화: 중간 표현 학습을 위한 pre-classifier
-        self.pre_classifier = nn.Sequential(
-            nn.Dropout(dropout_rate * 0.3),  # 🔧 더 약한 dropout으로 Adam의 학습 능력 활용
-            nn.Linear(512, 256),
-            nn.BatchNorm1d(256),  # Adam이 잘 처리하는 정규화
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout_rate * 0.5)   # 🔧 적당한 dropout
+        # 과적합 방지를 위한 단순한 분류기
+        self.classifier = nn.Sequential(
+            nn.Dropout(dropout_rate),  # 강한 dropout 적용
+            nn.Linear(512, num_classes)
         )
-        
-        self.classifier = nn.Linear(256, num_classes)
         
         self._initialize_weights()
     
@@ -395,8 +390,7 @@ class AdamOptimizedResNet18(nn.Module):
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
         
-        # 🎯 Adam이 잘 최적화하는 중간 표현 학습
-        x = self.pre_classifier(x)
+        # 단순한 분류
         x = self.classifier(x)
         
         return x

@@ -395,8 +395,8 @@ class CustomAdamABS(torch.optim.Optimizer):
                 # 1차 모멘텀 업데이트 (Adam과 동일)
                 exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
                 
-                # 2차 모멘텀 업데이트 (개선된 절댓값 사용): v_t = β₂ * v_{t-1} + (1 - β₂) * |g_t|
-                # 더 안정적인 스케일링으로 Adam과 비교 가능한 성능 달성
+                # ABS 2차 모멘텀: v_t = β₂ * v_{t-1} + (1 - β₂) * |g_t|
+                # 절댓값 사용 - 단순하고 효율적
                 exp_avg_sq.mul_(beta2).add_(grad.abs(), alpha=1 - beta2)
                 
                 # Bias correction
@@ -406,7 +406,7 @@ class CustomAdamABS(torch.optim.Optimizer):
                 bias_corrected_exp_avg = exp_avg / bias_correction1
                 bias_corrected_exp_avg_sq = exp_avg_sq / bias_correction2
                 
-                # 🚀 AdamABS 핵심: 제곱근 연산 완전 제거로 계산 효율성 확보
+                # AdamABS 핵심: 제곱근 연산 완전 제거
                 # 절댓값 기반 2차 모멘텀을 직접 사용 (sqrt 없음)
                 denominator = bias_corrected_exp_avg_sq.add_(group['eps'])
                 
@@ -553,10 +553,8 @@ def create_optimizer(optimizer_name: str, params, lr: float = 1e-3,
     
     elif optimizer_name == 'adamw':
         betas = kwargs.get('betas', (0.9, 0.999))
-        # 🚀 AdamW 성능 개선을 위한 하이퍼파라미터 조정
-        # Tiny ImageNet에서 더 좋은 성능을 위해 weight_decay 감소
-        adjusted_weight_decay = weight_decay * 0.5 if weight_decay > 0 else 0  # 50% 감소
-        return CustomAdamW(params, lr=lr, betas=betas, eps=eps, weight_decay=adjusted_weight_decay)
+        # 모든 옵티마이저 동일한 weight_decay 적용
+        return CustomAdamW(params, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
     
     elif optimizer_name == 'adamabs':
         betas = kwargs.get('betas', (0.9, 0.999))

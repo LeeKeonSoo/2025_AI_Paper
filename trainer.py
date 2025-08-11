@@ -112,18 +112,18 @@ class Trainer:
         total = 0
         batch_times = []
         
-        # 🔧 Tiny ImageNet에 대해 라벨 스무딩 적용
+        # 🔧 Tiny ImageNet에 대해 라벨 스무딩 강화
         is_tiny_imagenet = hasattr(train_loader.dataset, 'root') and 'tiny-imagenet' in str(train_loader.dataset.root).lower()
         if is_tiny_imagenet:
-            # 라벨 스무딩을 위한 새로운 criterion 사용
-            criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+            # 라벨 스무딩을 위한 새로운 criterion 사용 (강화)
+            criterion = nn.CrossEntropyLoss(label_smoothing=0.15)
         
         epoch_start_time = time.time()
         
         # 에포크 시작 출력
         print(f"\n📚 Epoch {epoch+1:3d}/{total_epochs} - Training")
         if is_tiny_imagenet:
-            print("🔧 Tiny ImageNet: 라벨 스무딩 + 그래디언트 클리핑 적용")
+            print("🔧 Tiny ImageNet: 라벨 스무딩(0.15) + 그래디언트 클리핑 적용")
         print("-" * 60)
         
         for batch_idx, (data, target) in enumerate(train_loader):
@@ -144,10 +144,10 @@ class Trainer:
                 # Backward pass with scaling
                 self.scaler.scale(loss).backward()
                 
-                # 🔧 Tiny ImageNet에 대해 그래디언트 클리핑 적용
+                # 🔧 Tiny ImageNet에 대해 그래디언트 클리핑 적용 (강화)
                 if is_tiny_imagenet:
                     self.scaler.unscale_(optimizer)
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=0.5)
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                 
                 self.scaler.step(optimizer)
                 self.scaler.update()
@@ -156,9 +156,9 @@ class Trainer:
                 loss = criterion(output, target)
                 loss.backward()
                 
-                # 🔧 Tiny ImageNet에 대해 그래디언트 클리핑 적용
+                # 🔧 Tiny ImageNet에 대해 그래디언트 클리핑 적용 (강화)
                 if is_tiny_imagenet:
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=0.5)
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                 
                 optimizer.step()
             
