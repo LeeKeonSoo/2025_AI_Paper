@@ -83,12 +83,12 @@ def setup_experiment_config(dataset_type: int, epochs: int = None, lr: float = N
             'scheduler_type': 'cosine'
         },
         3: {  # Tiny ImageNet - 🔧 과적합 방지 및 공정성 개선
-            'epochs': 25,       # 과적합 방지를 위해 단축
-            'lr': 0.0008,       # 더 작은 학습률로 안정화
-            'weight_decay': 2e-4, # 정규화 강화
+            'epochs': 40,       # 충분한 학습을 위해 증가
+            'lr': 0.001,        # 표준 학습률로 복원
+            'weight_decay': 1e-4, # 표준 정규화
             'batch_size': 64,   # 메모리 효율성 및 안정성
-            'model_type': 'resnet18',  # 🔧 기본 ResNet18 사용 (편향 제거)
-            'scheduler_type': 'step'   # 🔧 StepLR로 변경 (안정성)
+            'model_type': 'adam_optimized',  # 🔧 Adam 최적화 모델 사용
+            'scheduler_type': 'cosine'   # 🔧 CosineAnnealingLR로 복원
         }
     }
     
