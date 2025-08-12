@@ -843,6 +843,17 @@ class ExperimentVisualizer:
             experiment_results, dataset_name, f"{base_name}_results.json"
         )
         
+        # 7. 논문용 고품질 그래프 생성
+        print("\n📄 논문용 고품질 그래프 생성 중...")
+        try:
+            from paper_visualizer import create_paper_plots
+            create_paper_plots(experiment_results, dataset_name)
+            saved_files['paper_plots'] = "paper_results 폴더에 저장됨"
+        except ImportError:
+            print("⚠️ paper_visualizer 모듈을 찾을 수 없습니다.")
+        except Exception as e:
+            print(f"⚠️ 논문용 그래프 생성 실패: {e}")
+        
         print("="*60)
         print(f"✅ 모든 시각화 완료! 총 {len(saved_files)}개 파일 생성")
         print(f"📂 저장 경로: {os.path.abspath(self.results_dir)}")
