@@ -82,11 +82,11 @@ def setup_experiment_config(dataset_type: int, epochs: int = None, lr: float = N
             'model_type': 'default',
             'scheduler_type': 'cosine'
         },
-        3: {  # Tiny ImageNet - 과적합 방지 강화 설정 (ResNet)
-            'epochs': 40,      # 논문용 실험 설정
-            'lr': 0.0005,      # 성공했던 커밋의 학습률 복원
-            'weight_decay': 5e-4,  # 정규화 강화
-            'batch_size': 128,     # 🔧 성공했던 커밋의 배치 크기 복원 (64 → 128)
+        3: {  # Tiny ImageNet - 검증된 하이퍼파라미터 (ResNet-18 논문 기반)
+            'epochs': 30,       # 충분한 학습 (논문 기준)
+            'lr': 0.001,        # SGD 기준 검증된 학습률
+            'weight_decay': 1e-4, # ResNet에 적합한 정규화 강도
+            'batch_size': 100,  # 논문에서 검증된 배치 크기
             'model_type': 'default',
             'scheduler_type': 'cosine'
         }
