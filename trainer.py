@@ -474,8 +474,8 @@ class OptimizerExperiment:
         print(f"🔬 {optimizer_name.upper()} 실험 시작")
         print("="*100)
         
-        # Trainer 생성 (Mixed Precision 활성화)
-        trainer = Trainer(model, device='auto', weight_manager=self.weight_manager, use_mixed_precision=True)
+        # 🔧 Trainer 생성 (Mixed Precision 기본 비활성화 - 공정성 보장)
+        trainer = Trainer(model, device='auto', weight_manager=self.weight_manager, use_mixed_precision=False)
         
         # 메타데이터 설정
         trainer.set_metadata(
@@ -663,10 +663,11 @@ def create_standard_scheduler(optimizer: torch.optim.Optimizer,
         scheduler_type: 스케줄러 타입 ('cosine', 'step', 'plateau')
         epochs: 총 에포크 수
     """
-    if scheduler_type == 'cosine':
-        return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
-    elif scheduler_type == 'step':
+    # 🔧 기본 스케줄러를 StepLR로 변경 (더 안정적)
+    if scheduler_type == 'step':
         return torch.optim.lr_scheduler.StepLR(optimizer, step_size=epochs//3, gamma=0.1)
+    elif scheduler_type == 'cosine':
+        return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     elif scheduler_type == 'plateau':
         return torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=10, factor=0.5)
     else:

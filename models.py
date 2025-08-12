@@ -510,14 +510,13 @@ def create_model(dataset_type: int, model_type: str = 'default', **kwargs) -> nn
     
     elif dataset_type == 3:  # Tiny ImageNet
         if model_type.lower() in ['default', 'resnet', 'resnet18']:
-            # 🚀 Adam 계열 성능 부각을 위해 Adam 최적화 모델을 기본값으로 설정
-            return AdamOptimizedResNet18(num_classes=200, dropout_rate=dropout_rate)
+            # 🔧 공정성을 위해 기본 ResNet18 사용 (편향 제거)
+            return ResNet18(num_classes=200, dropout_rate=dropout_rate)
         elif model_type.lower() == 'simple':
             return SimpleTinyImageNetNet(num_classes=200, dropout_rate=dropout_rate)
         elif model_type.lower() in ['original_resnet', 'basic_resnet']:
-            # 원래 ResNet18은 별도 옵션으로 제공
             return ResNet18(num_classes=200, dropout_rate=dropout_rate)
-        # 🚀 Adam 최적화 모델 추가
+        # Adam 최적화 모델은 선택적 사용
         elif model_type.lower() in ['adam_optimized', 'adam_resnet']:
             return AdamOptimizedResNet18(num_classes=200, dropout_rate=dropout_rate)
         else:

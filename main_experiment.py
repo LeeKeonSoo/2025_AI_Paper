@@ -82,13 +82,13 @@ def setup_experiment_config(dataset_type: int, epochs: int = None, lr: float = N
             'model_type': 'default',
             'scheduler_type': 'cosine'
         },
-        3: {  # Tiny ImageNet - 검증된 하이퍼파라미터 (ResNet-18 논문 기반)
-            'epochs': 30,       # 충분한 학습 (논문 기준)
-            'lr': 0.001,        # SGD 기준 검증된 학습률
-            'weight_decay': 1e-4, # ResNet에 적합한 정규화 강도
-            'batch_size': 100,  # 논문에서 검증된 배치 크기
-            'model_type': 'default',
-            'scheduler_type': 'cosine'
+        3: {  # Tiny ImageNet - 🔧 과적합 방지 및 공정성 개선
+            'epochs': 25,       # 과적합 방지를 위해 단축
+            'lr': 0.0008,       # 더 작은 학습률로 안정화
+            'weight_decay': 2e-4, # 정규화 강화
+            'batch_size': 64,   # 메모리 효율성 및 안정성
+            'model_type': 'resnet18',  # 🔧 기본 ResNet18 사용 (편향 제거)
+            'scheduler_type': 'step'   # 🔧 StepLR로 변경 (안정성)
         }
     }
     
@@ -1217,14 +1217,16 @@ def main():
 
 
 if __name__ == "__main__":
-    # 시작 메시지
-    print("🧠 Adam vs AdamABS 옵티마이저 비교 실험")
-    print("=" * 60)
+    # 🔥 시작 메시지 (배치 테스트 강조)
+    print("🔥 배치 사이즈 테스트 전용 옵티마이저 비교 실험")
+    print("🔧 개선사항: AdamOptimized→ResNet18, Mixed Precision 비활성화, StepLR 스케줄러")
+    print("=" * 80)
     print("📅 실행 시간:", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     print("🖥️  디바이스:", "CUDA" if torch.cuda.is_available() else "CPU")
     if torch.cuda.is_available():
         print("🎮 GPU:", torch.cuda.get_device_name(0))
-    print("=" * 60)
+    print("🎯 추천 사용법: python main_experiment.py --batch-size-comparison --dataset 2")
+    print("=" * 80)
     
     try:
         results = main()
