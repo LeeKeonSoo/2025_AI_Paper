@@ -45,7 +45,7 @@ from optimizers import create_optimizer, CustomAdaGrad, CustomRMSProp, CustomRMS
 from data_loaders import get_dataset_loader, print_dataset_info
 from models import create_model, print_model_summary, get_model_info
 from trainer import OptimizerExperiment, create_standard_scheduler
-from visualizer import ExperimentVisualizer, set_visualization_mode
+from visualizer import ExperimentVisualizer, set_visualization_mode, create_adam_paper_style_plots
 from weight_manager import WeightManager, ContinuousTrainer
 
 # 시각화 모드 설정 적용 (조용히)
@@ -67,12 +67,12 @@ def setup_experiment_config(dataset_type: int, epochs: int = None, lr: float = N
     # 데이터셋별 기본 설정
     default_configs = {
         1: {  # MNIST
-            'epochs': 15,
+            'epochs': 200,  # Adam 논문 스타일
             'lr': 0.001,
             'weight_decay': 1e-4,
             'batch_size': 128,
-            'model_type': 'default',
-            'scheduler_type': 'cosine'
+            'model_type': 'mlp',  # MLP 모델 사용
+            'scheduler_type': 'none'  # 스케줄러 없음
         },
         2: {  # CIFAR-10
             'epochs': 50,
@@ -342,7 +342,12 @@ def run_experiment(dataset_type: int, epochs: int = None, lr: float = None,
     visualizer = ExperimentVisualizer('./results')
     saved_files = visualizer.generate_all_visualizations(results, dataset_name)
     
-    # 8. 실험 완료 메시지
+    # 8. Adam 논문 스타일 그래프 생성 (논문 직접 삽입용)
+    print(f"\n📈 Adam 논문 스타일 그래프 생성 중...")
+    paper_plots = create_adam_paper_style_plots(visualizer, results, dataset_name)
+    saved_files.update(paper_plots)
+    
+    # 9. 실험 완료 메시지
     print("\n" + "=" * 100)
     print("🎉 실험 완료!")
     print("=" * 100)
@@ -841,6 +846,16 @@ def batch_size_comparison_experiment(dataset_type: Optional[int] = None, epochs:
                             batch_results, 
                             f"{dataset_name} (Batch Size {batch_size})"
                         )
+                        
+                        # Adam 논문 스타일 그래프도 생성
+                        try:
+                            paper_plots = create_adam_paper_style_plots(
+                                visualizer, batch_results, 
+                                f"{dataset_name}_Batch{batch_size}"
+                            )
+                            print(f"📈 논문용 그래프 생성: Batch Size {batch_size}")
+                        except Exception as plot_e:
+                            print(f"⚠️  논문용 그래프 생성 실패: {plot_e}")
     
     # 최종 요약 출력
     print(f"\n📈 배치 사이즈별 성능 요약:")

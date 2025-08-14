@@ -90,13 +90,13 @@ class ExperimentVisualizer:
             results_dir: 결과 저장 디렉토리
         """
         self.results_dir = results_dir
-        # 5개 옵티마이저용 색상 팔레트 (색약자 친화적)
+        # ABS 옵티마이저를 더 구분되는 색상으로 변경
         self.colors = {
-            'AdaGrad': '#e41a1c',    # 빨간색 (구별하기 쉬운 밝은 빨강)
-            'RMSProp': '#377eb8',    # 파란색 (기본 파랑)
-            'Adam': '#4daf4a',       # 초록색 (밝은 초록)  
-            'AdamW': '#984ea3',      # 보라색 (진한 보라)
-            'AdamABS': '#ff7f00'     # 주황색 (밝은 주황)
+            'RMSProp': '#1f77b4',    # 파란색
+            'RMSPropABS': '#ff7f0e',  # 주황색  
+            'Adam': '#2ca02c',       # 초록색
+            'AdamW': '#d62728',      # 빨간색
+            'AdamABS': '#9467bd'     # 보라색
         }
         
         # Fallback 색상 리스트 (더 많은 옵티마이저나 알 수 없는 옵티마이저용)
@@ -867,9 +867,11 @@ class AdamABSAnalyzer:
     def __init__(self, results_dir: str = './results'):
         self.results_dir = results_dir
         self.colors = {
-            'Adam': '#1f77b4',
-            'AdamW': '#ff7f0e', 
-            'AdamABS': '#2ca02c'
+            'RMSProp': '#1f77b4',    # 파란색
+            'RMSPropABS': '#ff7f0e',  # 주황색  
+            'Adam': '#2ca02c',       # 초록색
+            'AdamW': '#d62728',      # 빨간색
+            'AdamABS': '#9467bd'     # 보라색
         }
         os.makedirs(results_dir, exist_ok=True)
         
@@ -1270,11 +1272,11 @@ class BatchSizeVisualizer:
         self.results_dir = results_dir
         # 5개 옵티마이저용 색상 팔레트 (ExperimentVisualizer와 동일)
         self.colors = {
-            'AdaGrad': '#e41a1c',    # 빨간색
-            'RMSProp': '#377eb8',    # 파란색
-            'Adam': '#4daf4a',       # 초록색  
-            'AdamW': '#984ea3',      # 보라색
-            'AdamABS': '#ff7f00'     # 주황색
+            'RMSProp': '#1f77b4',    # 파란색
+            'RMSPropABS': '#ff7f0e',  # 주황색  
+            'Adam': '#2ca02c',       # 초록색
+            'AdamW': '#d62728',      # 빨간색
+            'AdamABS': '#9467bd'     # 보라색
         }
         self.batch_colors = {
             64: '#e74c3c',   # 빨간색
@@ -1689,8 +1691,11 @@ class HyperparameterVisualizer:
         """
         self.results_dir = results_dir
         self.colors = {
-            'Adam': '#1f77b4',
-            'AdamABS': '#2ca02c'
+            'RMSProp': '#1f77b4',    # 파란색
+            'RMSPropABS': '#ff7f0e',  # 주황색  
+            'Adam': '#2ca02c',       # 초록색
+            'AdamW': '#d62728',      # 빨간색
+            'AdamABS': '#9467bd'     # 보라색
         }
         
         # 결과 디렉토리 생성
@@ -2163,3 +2168,213 @@ if __name__ == "__main__":
     print(f"생성된 파일들:")
     for file_type, file_path in saved_files.items():
         print(f"  {file_type}: {file_path}")
+
+
+# =============================================================================
+# Adam 논문 스타일 시각화 확장
+# =============================================================================
+
+def create_adam_paper_style_plots(visualizer, experiment_results: Dict[str, Any], 
+                                 dataset_name: str) -> Dict[str, str]:
+    """
+    Adam 논문 스타일의 두 그래프 생성 (논문 직접 삽입용)
+    
+    1. Training Cost Convergence (로그 스케일)
+    2. Validation Accuracy Progress
+    
+    Args:
+        visualizer: ExperimentVisualizer 인스턴스
+        experiment_results: 실험 결과 데이터
+        dataset_name: 데이터셋 이름
+        
+    Returns:
+        Dict[str, str]: 저장된 파일 경로들
+    """
+    saved_files = {}
+    
+    # Adam 논문 스타일 설정
+    plt.style.use('default')
+    plt.rcParams.update({
+        'font.size': 11,
+        'axes.titlesize': 14,
+        'axes.labelsize': 12,
+        'legend.fontsize': 10,
+        'figure.titlesize': 16,
+        'lines.linewidth': 2.0,
+        'grid.alpha': 0.3,
+        'grid.linewidth': 0.5,
+        'axes.grid': True,
+        'axes.axisbelow': True,
+        'figure.facecolor': 'white',
+        'axes.facecolor': 'white'
+    })
+    
+    # 색상 매핑 (Adam 논문의 색상 스타일 재현)
+    paper_colors = {
+        'RMSProp': '#377eb8',      # 파란색 (Adam 논문 스타일)
+        'RMSPropABS': '#ff7f0e',   # 주황색
+        'Adam': '#e41a1c',         # 빨간색 (Adam 논문에서 주황색이었음)
+        'AdamW': '#4daf4a',        # 초록색  
+        'AdamABS': '#984ea3'       # 보라색 (새로운 제안 방법)
+    }
+    
+    # 1. Training Cost Convergence (메인 그래프)
+    fig1, ax1 = plt.subplots(1, 1, figsize=(8, 6))
+    
+    # 배경을 약간 회색으로 설정 (Adam 논문 스타일)
+    ax1.set_facecolor('#f8f8f8')
+    
+    for optimizer_name in paper_colors.keys():
+        if optimizer_name in experiment_results:
+            opt_results = experiment_results[optimizer_name]
+            train_losses = opt_results.get('train_losses', [])
+            
+            if train_losses:
+                # 스무딩 적용 (논문 품질)
+                smoothed_losses = _smooth_curve(train_losses, window=5)
+                iterations = range(len(smoothed_losses))
+                
+                ax1.semilogy(iterations, smoothed_losses, 
+                           color=paper_colors[optimizer_name],
+                           label=optimizer_name,
+                           linewidth=2.0,
+                           alpha=0.9)
+    
+    # 그래프 스타일링 (Adam 논문 재현)
+    ax1.set_xlabel('iterations over entire dataset', fontsize=12)
+    ax1.set_ylabel('training cost', fontsize=12)
+    ax1.set_title(f'{dataset_name} Multilayer Neural Network + dropout', 
+                 fontsize=14, pad=20)
+    
+    # 로그 스케일 범위 설정
+    ax1.set_ylim(1e-3, 1e1)
+    ax1.set_xlim(0, 200)
+    
+    # 격자 설정 (Adam 논문 스타일)
+    ax1.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
+    ax1.set_axisbelow(True)
+    
+    # 범례 설정 (논문 스타일)
+    legend = ax1.legend(loc='upper right', 
+                      frameon=True, 
+                      fancybox=True, 
+                      shadow=True,
+                      framealpha=0.9,
+                      edgecolor='black',
+                      facecolor='white')
+    legend.get_frame().set_linewidth(0.5)
+    
+    # 축 눈금 개선
+    ax1.tick_params(axis='both', which='major', labelsize=10)
+    ax1.tick_params(axis='both', which='minor', labelsize=8)
+    
+    plt.tight_layout()
+    
+    # 저장 (논문용 고해상도)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename1 = f"{dataset_name.lower()}_{timestamp}_training_convergence_paper.png"
+    filepath1 = os.path.join(visualizer.results_dir, filename1)
+    plt.savefig(filepath1, dpi=300, bbox_inches='tight', 
+               facecolor='white', edgecolor='none')
+    
+    if visualizer.show_plots:
+        plt.show()
+    else:
+        plt.close()
+        
+    saved_files['training_convergence'] = filepath1
+    
+    # 2. Validation Accuracy Progress (보조 그래프)
+    fig2, ax2 = plt.subplots(1, 1, figsize=(8, 6))
+    ax2.set_facecolor('#f8f8f8')
+    
+    for optimizer_name in paper_colors.keys():
+        if optimizer_name in experiment_results:
+            opt_results = experiment_results[optimizer_name]
+            val_accuracies = opt_results.get('val_accuracies', [])
+            
+            if val_accuracies:
+                # 백분율로 변환
+                val_acc_percent = [acc * 100 for acc in val_accuracies]
+                # 스무딩 적용
+                smoothed_acc = _smooth_curve(val_acc_percent, window=5)
+                iterations = range(len(smoothed_acc))
+                
+                ax2.plot(iterations, smoothed_acc,
+                       color=paper_colors[optimizer_name],
+                       label=optimizer_name,
+                       linewidth=2.0,
+                       alpha=0.9)
+    
+    # 그래프 스타일링
+    ax2.set_xlabel('iterations over entire dataset', fontsize=12)
+    ax2.set_ylabel('Validation Accuracy (%)', fontsize=12)
+    ax2.set_title(f'{dataset_name} Multi-layer Neural Network - Validation Performance', 
+                 fontsize=14, pad=20)
+    
+    # Y축 범위 설정 (정확도 범위)
+    ax2.set_ylim(90, 100)  # MNIST의 경우 일반적인 범위
+    ax2.set_xlim(0, 200)
+    
+    # 격자 설정
+    ax2.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
+    ax2.set_axisbelow(True)
+    
+    # 범례 설정
+    legend = ax2.legend(loc='lower right',
+                      frameon=True,
+                      fancybox=True,
+                      shadow=True,
+                      framealpha=0.9,
+                      edgecolor='black',
+                      facecolor='white')
+    legend.get_frame().set_linewidth(0.5)
+    
+    # 축 눈금 개선
+    ax2.tick_params(axis='both', which='major', labelsize=10)
+    
+    plt.tight_layout()
+    
+    # 저장
+    filename2 = f"{dataset_name.lower()}_{timestamp}_validation_accuracy_paper.png"
+    filepath2 = os.path.join(visualizer.results_dir, filename2)
+    plt.savefig(filepath2, dpi=300, bbox_inches='tight',
+               facecolor='white', edgecolor='none')
+    
+    if visualizer.show_plots:
+        plt.show()
+    else:
+        plt.close()
+        
+    saved_files['validation_accuracy'] = filepath2
+    
+    # 결과 요약 출력
+    print(f"\n📊 Adam 논문 스타일 그래프 생성 완료!")
+    print(f"   📈 Training Convergence: {os.path.basename(filepath1)}")
+    print(f"   📉 Validation Accuracy: {os.path.basename(filepath2)}")
+    print(f"   💾 저장 위치: {os.path.dirname(filepath1)}")
+    print(f"   🎯 해상도: 300 DPI (논문 인쇄용)")
+    
+    return saved_files
+
+def _smooth_curve(data: List[float], window: int = 5) -> List[float]:
+    """
+    곡선 스무딩 (논문 품질 향상)
+    
+    Args:
+        data: 원본 데이터
+        window: 스무딩 윈도우 크기
+        
+    Returns:
+        List[float]: 스무딩된 데이터
+    """
+    if len(data) < window:
+        return data
+        
+    smoothed = []
+    for i in range(len(data)):
+        start = max(0, i - window // 2)
+        end = min(len(data), i + window // 2 + 1)
+        smoothed.append(sum(data[start:end]) / (end - start))
+        
+    return smoothed

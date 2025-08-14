@@ -110,6 +110,25 @@ class SimpleMNISTNet(nn.Module):
         return x
 
 
+class MLPNet(nn.Module):
+    """Adam 논문 스타일 MLP: 2 hidden layers, 1000 units each"""
+    
+    def __init__(self, input_dim: int = 784, num_classes: int = 10):
+        super(MLPNet, self).__init__()
+        # Adam 논문 스타일 MLP: 2 hidden layers, 1000 units each
+        self.model = torch.nn.Sequential(
+            torch.nn.Flatten(),
+            torch.nn.Linear(input_dim, 1000),
+            torch.nn.ReLU(),
+            torch.nn.Linear(1000, 1000),
+            torch.nn.ReLU(),
+            torch.nn.Linear(1000, num_classes)
+        )
+    
+    def forward(self, x):
+        return self.model(x)
+
+
 # =============================================================================
 # CIFAR-10 모델들
 # =============================================================================
@@ -497,6 +516,8 @@ def create_model(dataset_type: int, model_type: str = 'default', **kwargs) -> nn
             return MNISTNet(dropout_rate=dropout_rate)
         elif model_type.lower() == 'simple':
             return SimpleMNISTNet(dropout_rate=dropout_rate)
+        elif model_type.lower() == 'mlp':
+            return MLPNet()
         else:
             raise ValueError(f"MNIST에서 지원하지 않는 모델 타입: {model_type}")
     
