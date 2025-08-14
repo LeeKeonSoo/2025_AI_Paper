@@ -654,24 +654,30 @@ def create_standard_criterion(label_smoothing: float = 0.0) -> nn.Module:
 
 def create_standard_scheduler(optimizer: torch.optim.Optimizer, 
                             scheduler_type: str = 'cosine',
-                            epochs: int = 100) -> torch.optim.lr_scheduler._LRScheduler:
+                            epochs: int = 100) -> Optional[torch.optim.lr_scheduler._LRScheduler]:
     """
     표준 스케줄러 생성
     
     Args:
         optimizer: 옵티마이저
-        scheduler_type: 스케줄러 타입 ('cosine', 'step', 'plateau')
+        scheduler_type: 스케줄러 타입 ('cosine', 'step', 'plateau', 'none')
         epochs: 총 에포크 수
+        
+    Returns:
+        스케줄러 객체 또는 None ('none'인 경우)
     """
-    # 🔧 기본 스케줄러를 StepLR로 변경 (더 안정적)
-    if scheduler_type == 'step':
+    if scheduler_type.lower() == 'none':
+        return None
+    elif scheduler_type == 'step':
         return torch.optim.lr_scheduler.StepLR(optimizer, step_size=epochs//3, gamma=0.1)
     elif scheduler_type == 'cosine':
         return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     elif scheduler_type == 'plateau':
         return torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=10, factor=0.5)
     else:
-        raise ValueError(f"지원하지 않는 스케줄러: {scheduler_type}")
+        # 기본값으로 None 반환 (스케줄러 없음)
+        print(f"⚠️  알 수 없는 스케줄러 타입: {scheduler_type}, 스케줄러 없이 진행합니다.")
+        return None
 
 
 if __name__ == "__main__":

@@ -358,7 +358,12 @@ class ExperimentVisualizer:
         bars = ax.bar(opt_names, val_accs, color=colors_list, alpha=0.8)
         ax.set_title('Best Validation Accuracy', fontsize=14, fontweight='bold')
         ax.set_ylabel('Accuracy (%)')
-        ax.set_ylim(max(0, min(val_accs) - 5), min(100, max(val_accs) + 5))
+        
+        # 빈 리스트 체크 추가
+        if val_accs:
+            ax.set_ylim(max(0, min(val_accs) - 5), min(100, max(val_accs) + 5))
+        else:
+            ax.set_ylim(0, 100)
         
         # 막대 위에 값 표시
         for bar, acc in zip(bars, val_accs):
@@ -379,7 +384,12 @@ class ExperimentVisualizer:
         bars = ax.bar(opt_names, test_accs, color=colors_list, alpha=0.8)
         ax.set_title('Final Test Accuracy', fontsize=14, fontweight='bold')
         ax.set_ylabel('Accuracy (%)')
-        ax.set_ylim(max(0, min(test_accs) - 5), min(100, max(test_accs) + 5))
+        
+        # 빈 리스트 체크 추가
+        if test_accs:
+            ax.set_ylim(max(0, min(test_accs) - 5), min(100, max(test_accs) + 5))
+        else:
+            ax.set_ylim(0, 100)
         
         for bar, acc in zip(bars, test_accs):
             ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5,
@@ -1867,7 +1877,12 @@ class HyperparameterVisualizer:
         bars = ax1.bar(optimizers, best_accs, color=[self.colors[opt] for opt in optimizers])
         ax1.set_title('Best Validation Accuracy', fontweight='bold')
         ax1.set_ylabel('Accuracy (%)')
-        ax1.set_ylim([min(best_accs) - 1, max(best_accs) + 1])
+        
+        # 빈 리스트 체크 추가
+        if best_accs:
+            ax1.set_ylim([min(best_accs) - 1, max(best_accs) + 1])
+        else:
+            ax1.set_ylim([0, 100])
         
         # 막대 위에 값 표시
         for bar, acc in zip(bars, best_accs):
@@ -2224,12 +2239,17 @@ def create_adam_paper_style_plots(visualizer, experiment_results: Dict[str, Any]
     # 배경을 약간 회색으로 설정 (Adam 논문 스타일)
     ax1.set_facecolor('#f8f8f8')
     
+    has_data = False  # 데이터 존재 여부 체크
+    
     for optimizer_name in paper_colors.keys():
         if optimizer_name in experiment_results:
             opt_results = experiment_results[optimizer_name]
-            train_losses = opt_results.get('train_losses', [])
+            # 올바른 키 이름 사용: training_history 안의 train_loss
+            training_history = opt_results.get('training_history', {})
+            train_losses = training_history.get('train_loss', [])
             
             if train_losses:
+                has_data = True
                 # 스무딩 적용 (논문 품질)
                 smoothed_losses = _smooth_curve(train_losses, window=5)
                 iterations = range(len(smoothed_losses))
@@ -2239,6 +2259,12 @@ def create_adam_paper_style_plots(visualizer, experiment_results: Dict[str, Any]
                            label=optimizer_name,
                            linewidth=2.0,
                            alpha=0.9)
+    
+    # 데이터가 없는 경우 기본 그래프 생성
+    if not has_data:
+        ax1.text(0.5, 0.5, 'No training data available', 
+                transform=ax1.transAxes, ha='center', va='center',
+                fontsize=14, alpha=0.7)
     
     # 그래프 스타일링 (Adam 논문 재현)
     ax1.set_xlabel('iterations over entire dataset', fontsize=12)
@@ -2288,14 +2314,19 @@ def create_adam_paper_style_plots(visualizer, experiment_results: Dict[str, Any]
     fig2, ax2 = plt.subplots(1, 1, figsize=(8, 6))
     ax2.set_facecolor('#f8f8f8')
     
+    has_val_data = False  # 검증 데이터 존재 여부 체크
+    
     for optimizer_name in paper_colors.keys():
         if optimizer_name in experiment_results:
             opt_results = experiment_results[optimizer_name]
-            val_accuracies = opt_results.get('val_accuracies', [])
+            # 올바른 키 이름 사용: training_history 안의 val_acc
+            training_history = opt_results.get('training_history', {})
+            val_accuracies = training_history.get('val_acc', [])
             
             if val_accuracies:
-                # 백분율로 변환
-                val_acc_percent = [acc * 100 for acc in val_accuracies]
+                has_val_data = True
+                # 백분율로 변환 (이미 백분율이므로 그대로 사용)
+                val_acc_percent = val_accuracies
                 # 스무딩 적용
                 smoothed_acc = _smooth_curve(val_acc_percent, window=5)
                 iterations = range(len(smoothed_acc))
@@ -2305,6 +2336,12 @@ def create_adam_paper_style_plots(visualizer, experiment_results: Dict[str, Any]
                        label=optimizer_name,
                        linewidth=2.0,
                        alpha=0.9)
+    
+    # 데이터가 없는 경우 기본 그래프 생성
+    if not has_val_data:
+        ax2.text(0.5, 0.5, 'No validation data available', 
+                transform=ax2.transAxes, ha='center', va='center',
+                fontsize=14, alpha=0.7)
     
     # 그래프 스타일링
     ax2.set_xlabel('iterations over entire dataset', fontsize=12)
