@@ -2269,7 +2269,7 @@ def create_adam_paper_style_plots(visualizer, experiment_results: Dict[str, Any]
     # 그래프 스타일링 (Adam 논문 재현)
     ax1.set_xlabel('iterations over entire dataset', fontsize=12)
     ax1.set_ylabel('training cost', fontsize=12)
-    ax1.set_title(f'{dataset_name} Multilayer Neural Network + dropout', 
+    ax1.set_title(f'{dataset_name} Multilayer Perceptron', 
                  fontsize=14, pad=20)
     
     # 로그 스케일 범위 설정
@@ -2280,15 +2280,16 @@ def create_adam_paper_style_plots(visualizer, experiment_results: Dict[str, Any]
     ax1.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
     ax1.set_axisbelow(True)
     
-    # 범례 설정 (논문 스타일)
-    legend = ax1.legend(loc='upper right', 
-                      frameon=True, 
-                      fancybox=True, 
-                      shadow=True,
-                      framealpha=0.9,
-                      edgecolor='black',
-                      facecolor='white')
-    legend.get_frame().set_linewidth(0.5)
+    # 범례 설정 (논문 스타일) - 데이터가 있을 때만
+    if has_data:
+        legend = ax1.legend(loc='upper right', 
+                          frameon=True, 
+                          fancybox=True, 
+                          shadow=True,
+                          framealpha=0.9,
+                          edgecolor='black',
+                          facecolor='white')
+        legend.get_frame().set_linewidth(0.5)
     
     # 축 눈금 개선
     ax1.tick_params(axis='both', which='major', labelsize=10)
@@ -2303,7 +2304,7 @@ def create_adam_paper_style_plots(visualizer, experiment_results: Dict[str, Any]
     plt.savefig(filepath1, dpi=300, bbox_inches='tight', 
                facecolor='white', edgecolor='none')
     
-    if visualizer.show_plots:
+    if _SHOW_PLOTS:
         plt.show()
     else:
         plt.close()
@@ -2346,7 +2347,7 @@ def create_adam_paper_style_plots(visualizer, experiment_results: Dict[str, Any]
     # 그래프 스타일링
     ax2.set_xlabel('iterations over entire dataset', fontsize=12)
     ax2.set_ylabel('Validation Accuracy (%)', fontsize=12)
-    ax2.set_title(f'{dataset_name} Multi-layer Neural Network - Validation Performance', 
+    ax2.set_title(f'{dataset_name} Multilayer Perceptron - Validation Performance', 
                  fontsize=14, pad=20)
     
     # Y축 범위 설정 (정확도 범위)
@@ -2357,15 +2358,16 @@ def create_adam_paper_style_plots(visualizer, experiment_results: Dict[str, Any]
     ax2.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
     ax2.set_axisbelow(True)
     
-    # 범례 설정
-    legend = ax2.legend(loc='lower right',
-                      frameon=True,
-                      fancybox=True,
-                      shadow=True,
-                      framealpha=0.9,
-                      edgecolor='black',
-                      facecolor='white')
-    legend.get_frame().set_linewidth(0.5)
+    # 범례 설정 - 데이터가 있을 때만
+    if has_val_data:
+        legend = ax2.legend(loc='lower right',
+                          frameon=True,
+                          fancybox=True,
+                          shadow=True,
+                          framealpha=0.9,
+                          edgecolor='black',
+                          facecolor='white')
+        legend.get_frame().set_linewidth(0.5)
     
     # 축 눈금 개선
     ax2.tick_params(axis='both', which='major', labelsize=10)
@@ -2378,7 +2380,7 @@ def create_adam_paper_style_plots(visualizer, experiment_results: Dict[str, Any]
     plt.savefig(filepath2, dpi=300, bbox_inches='tight',
                facecolor='white', edgecolor='none')
     
-    if visualizer.show_plots:
+    if _SHOW_PLOTS:
         plt.show()
     else:
         plt.close()
